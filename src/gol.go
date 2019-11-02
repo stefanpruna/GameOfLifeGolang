@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Modulus that only returns positive number
@@ -55,6 +56,30 @@ func getNewState(numberOfAlive int, cellState bool) int {
 	return 0
 }
 
+// Worker function
+func worker(p golParams, world [][]byte, startX, endX, startY, endY int, result chan [][]byte, group *sync.WaitGroup) {
+	newWorld := make([][]byte, endX-startX)
+	for i := range newWorld {
+		newWorld[i] = make([]byte, endY-startY)
+	}
+
+	for i := startX; i < endX; i++ {
+		for j := startY; j < endY; j++ {
+			switch getNewState(getAliveNeighbours(world, i, j, p.imageHeight, p.imageWidth), world[i][j] == 0xFF) {
+			case -1:
+				newWorld[i-startX][j-startY] = 0x00
+			case 1:
+				newWorld[i-startX][j-startY] = 0xFF
+			case 0:
+				newWorld[i-startX][j-startY] = world[i][j]
+			}
+		}
+	}
+
+	group.Done()
+	result <- newWorld
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
 
@@ -79,24 +104,27 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
-	oldWorld := make([][]byte, p.imageHeight)
-	for i := range oldWorld {
-		oldWorld[i] = make([]byte, p.imageWidth)
+	// Make channels
+	var chans = make([]chan [][]byte, p.threads)
+	for i := 0; i < p.threads; i++ {
+		chans[i] = make(chan [][]byte)
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
-		for i := range oldWorld {
-			copy(oldWorld[i], world[i])
+		var group sync.WaitGroup
+
+		for t := 0; t < p.threads; t++ {
+			group.Add(1)
+			go worker(p, world, p.imageHeight/p.threads*t, p.imageHeight/p.threads*(t+1), 0, p.imageWidth, chans[t], &group)
 		}
-		for x := 0; x < p.imageHeight; x++ {
-			for y := 0; y < p.imageWidth; y++ {
-				switch getNewState(getAliveNeighbours(oldWorld, x, y, p.imageHeight, p.imageWidth), oldWorld[x][y] == 0xFF) {
-				case -1:
-					world[x][y] = 0x00
-				case 1:
-					world[x][y] = 0xFF
-				}
+
+		group.Wait()
+
+		for t := 0; t < p.threads; t++ {
+			channelOutput := <-chans[t]
+			for x := 0; x < p.imageHeight/p.threads; x++ {
+				world[x+p.imageHeight/p.threads*t] = channelOutput[x]
 			}
 		}
 	}
