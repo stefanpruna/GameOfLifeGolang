@@ -6,6 +6,55 @@ import (
 	"strings"
 )
 
+// Modulus that only returns positive number
+func positiveModulo(x, m int) int {
+	if x > 0 {
+		return x % m
+	} else {
+		for x < 0 {
+			x += m
+		}
+		return x % m
+	}
+}
+
+// Return the number of alive neighbours
+func getAliveNeighbours(world [][]byte, x, y, imageHeight, imageWidth int) int {
+	aliveNeighbours := 0
+	//if the cell is on the left border
+	dx := [8]int{-1, -1, 0, 1, 1, 1, 0, -1}
+	dy := [8]int{0, 1, 1, 1, 0, -1, -1, -1}
+
+	for i := 0; i < 8; i++ {
+		newX := positiveModulo(x+dx[i], imageHeight)
+		newY := positiveModulo(y+dy[i], imageWidth)
+		if world[newX][newY] == 0xFF {
+			aliveNeighbours++
+		}
+	}
+	return aliveNeighbours
+}
+
+// Returns the new state of a cell from the number of alive neighbours and current state
+func getNewState(numberOfAlive int, cellState bool) int {
+	if cellState == true {
+		if numberOfAlive < 2 {
+			return -1
+		}
+		if numberOfAlive <= 3 {
+			return 0
+		}
+		if numberOfAlive > 3 {
+			return -1
+		}
+	} else {
+		if numberOfAlive == 3 {
+			return 1
+		}
+	}
+	return 0
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
 
@@ -30,12 +79,24 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
+	oldWorld := make([][]byte, p.imageHeight)
+	for i := range oldWorld {
+		oldWorld[i] = make([]byte, p.imageWidth)
+	}
+
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
-		for y := 0; y < p.imageHeight; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				// Placeholder for the actual Game of Life logic: flips alive cells to dead and dead cells to alive.
-				world[y][x] = world[y][x] ^ 0xFF
+		for i := range oldWorld {
+			copy(oldWorld[i], world[i])
+		}
+		for x := 0; x < p.imageHeight; x++ {
+			for y := 0; y < p.imageWidth; y++ {
+				switch getNewState(getAliveNeighbours(oldWorld, x, y, p.imageHeight, p.imageWidth), oldWorld[x][y] == 0xFF) {
+				case -1:
+					world[x][y] = 0x00
+				case 1:
+					world[x][y] = 0xFF
+				}
 			}
 		}
 	}
