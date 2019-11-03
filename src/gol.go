@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	//"time"
 )
 
@@ -92,9 +93,28 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	}
 }
 
-func ioController(world [][]byte, p golParams, d distributorChans, keyChan <-chan rune, turns *int, paused *bool, resume chan<- bool, quit *bool) {
+// Returns number of alive cells in the world.
+func getAlive(world [][]byte) int {
+	r := 0
+	for i := range world {
+		for j := range world[i] {
+			if world[i][j] == 0x00 {
+				r++
+			}
+		}
+	}
+	return r
+}
+
+func eventController(world [][]byte, p golParams, d distributorChans, keyChan <-chan rune, turns *int, paused *bool, resume chan<- bool, quit *bool) {
+	timer := time.NewTimer(2 * time.Second)
 	for !*quit {
 		select {
+		case <-timer.C:
+			fmt.Println("There are", getAlive(world), "alive cells in the world.")
+			if !*paused {
+				timer = time.NewTimer(2 * time.Second)
+			}
 		case k := <-keyChan:
 			if k == 's' {
 				outputWorld(p, *turns, d, world)
@@ -102,9 +122,11 @@ func ioController(world [][]byte, p golParams, d distributorChans, keyChan <-cha
 				*paused = !(*paused)
 				if *paused {
 					fmt.Println("Pausing. The turn number", *turns, "is currently being processed.")
+					timer.Stop()
 				} else {
 					fmt.Println("Continuing.")
 					resume <- true
+					timer = time.NewTimer(2 * time.Second)
 				}
 			} else if k == 'q' {
 				fmt.Println("Quitting simulation and outputting final state of the world.")
@@ -153,7 +175,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	var quit bool = false
 	var resume = make(chan bool)
 
-	go ioController(world, p, d, keyChan, &turns, &paused, resume, &quit)
+	go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns = 0; turns < p.turns; turns++ {
