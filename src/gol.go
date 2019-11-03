@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	//"time"
 )
 
 // Modulus that only returns positive number
@@ -80,8 +81,45 @@ func worker(p golParams, world [][]byte, startX, endX, startY, endY int, result 
 	result <- newWorld
 }
 
+// Sends world to output
+func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
+	d.io.command <- ioOutput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x") + "_state_" + strconv.Itoa(state)
+	for i := range world {
+		for j := range world[i] {
+			d.io.world <- world[i][j]
+		}
+	}
+}
+
+func ioController(world [][]byte, p golParams, d distributorChans, keyChan <-chan rune, turns *int, paused *bool, resume chan<- bool, quit *bool) {
+	for !*quit {
+		select {
+		case k := <-keyChan:
+			if k == 's' {
+				outputWorld(p, *turns, d, world)
+			} else if k == 'p' {
+				*paused = !(*paused)
+				if *paused {
+					fmt.Println("Pausing. The turn number", *turns, "is currently being processed.")
+				} else {
+					fmt.Println("Continuing.")
+					resume <- true
+				}
+			} else if k == 'q' {
+				fmt.Println("Quitting simulation and outputting final state of the world.")
+				if *paused {
+					*paused = false
+					resume <- true
+				}
+				*quit = true
+			}
+		}
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell) {
+func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -110,8 +148,16 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		chans[i] = make(chan [][]byte)
 	}
 
+	var turns int = 0
+	var paused bool = false
+	var quit bool = false
+	var resume = make(chan bool)
+
+	go ioController(world, p, d, keyChan, &turns, &paused, resume, &quit)
+
 	// Calculate the new state of Game of Life after the given number of turns.
-	for turns := 0; turns < p.turns; turns++ {
+	for turns = 0; turns < p.turns; turns++ {
+
 		var group sync.WaitGroup
 
 		for t := 0; t < p.threads; t++ {
@@ -126,6 +172,14 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			for x := 0; x < p.imageHeight/p.threads; x++ {
 				world[x+p.imageHeight/p.threads*t] = channelOutput[x]
 			}
+		}
+
+		if paused {
+			<-resume
+		}
+		if quit {
+			outputWorld(p, turns, d, world)
+			break
 		}
 	}
 
