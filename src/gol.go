@@ -178,6 +178,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
 
 	// Thread calculations
+	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
 	threadsLarge := p.imageHeight % p.threads
 	threadsSmall := p.threads - p.imageHeight%p.threads
 
