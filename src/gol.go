@@ -177,22 +177,40 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
 
+	// Thread calculations
+	threadsLarge := p.imageHeight % p.threads
+	threadsSmall := p.threads - p.imageHeight%p.threads
+
+	threadsLargeHeight := p.imageHeight/p.threads + 1
+	threadsSmallHeight := p.imageHeight / p.threads
+
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns = 0; turns < p.turns; turns++ {
 
 		var group sync.WaitGroup
 
-		for t := 0; t < p.threads; t++ {
+		for t := 0; t < threadsSmall; t++ {
 			group.Add(1)
-			go worker(p, world, p.imageHeight/p.threads*t, p.imageHeight/p.threads*(t+1), 0, p.imageWidth, chans[t], &group)
+			go worker(p, world, threadsSmallHeight*t, threadsSmallHeight*(t+1), 0, p.imageWidth, chans[t], &group)
+		}
+		for t := 0; t < threadsLarge; t++ {
+			group.Add(1)
+			go worker(p, world, threadsSmallHeight*threadsSmall+threadsLargeHeight*t,
+				threadsSmallHeight*threadsSmall+threadsLargeHeight*(t+1), 0, p.imageWidth, chans[threadsSmall+t], &group)
 		}
 
 		group.Wait()
 
-		for t := 0; t < p.threads; t++ {
+		for t := 0; t < threadsSmall; t++ {
 			channelOutput := <-chans[t]
-			for x := 0; x < p.imageHeight/p.threads; x++ {
-				world[x+p.imageHeight/p.threads*t] = channelOutput[x]
+			for x := 0; x < threadsSmallHeight; x++ {
+				world[threadsSmallHeight*t+x] = channelOutput[x]
+			}
+		}
+		for t := 0; t < threadsLarge; t++ {
+			channelOutput := <-chans[threadsSmall+t]
+			for x := 0; x < threadsLargeHeight; x++ {
+				world[threadsSmallHeight*threadsSmall+threadsLargeHeight*t+x] = channelOutput[x]
 			}
 		}
 
