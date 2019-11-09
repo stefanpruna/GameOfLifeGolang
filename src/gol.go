@@ -65,24 +65,33 @@ func getNewState(numberOfAlive int, cellState bool) int {
 }
 
 // Worker function
-func worker(p golParams, channels workerChannel, startX, endX, startY, endY int, group *sync.WaitGroup) {
+func worker(p golParams, channels *workerChannel, startX, endX, startY, endY int, group *sync.WaitGroup) {
 	world := make([][]byte, endX-startX+2)
 	for i := range world {
 		world[i] = make([]byte, endY-startY)
 	}
 
+	newWorld := make([][]byte, endX-startX+2)
+	for i := range world {
+		newWorld[i] = make([]byte, endY-startY)
+	}
+
 	for i := range world {
 		for j := 0; j < p.imageWidth; j++ {
-			world[i][j] = <-channels.inputByte
-			fmt.Print(world[i][j], " ")
+			newWorld[i][j] = <-channels.inputByte
 		}
-		fmt.Println()
 	}
-	fmt.Println("MUIE")
 
 	// TODO add pause
 	for it := 0; it < p.turns; it++ {
+		for i := range world {
+			for j := range world[i] {
+				world[i][j] = newWorld[i][j]
+			}
+		}
+
 		// Receive new halo lines
+
 		if it != 0 {
 			for j := 0; j < p.imageWidth; j++ {
 				world[0][j] = <-channels.inputHalo[0]
@@ -94,27 +103,28 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int,
 			for j := startY; j < endY; j++ {
 				switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
 				case -1:
-					world[i][j] = 0x00
+					newWorld[i][j] = 0x00
 				case 1:
-					world[i][j] = 0xFF
+					newWorld[i][j] = 0xFF
+				case 0:
+					newWorld[i][j] = world[i][j]
 				}
 			}
 		}
 
 		// Send new halo lines
 		for j := 0; j < p.imageWidth; j++ {
-			channels.outputHalo[0] <- world[1][j]
-			channels.outputHalo[1] <- world[endX-startX][j]
+			channels.outputHalo[0] <- newWorld[1][j]
+			channels.outputHalo[1] <- newWorld[endX-startX][j]
 		}
 
 	}
-
 	for i := 1; i < endX-startX+1; i++ {
 		for j := startY; j < endY; j++ {
-			channels.outputByte <- world[i][j]
+			channels.outputByte <- newWorld[i][j]
 		}
 	}
-	fmt.Println("done")
+
 	group.Done()
 }
 
@@ -209,10 +219,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		chans[i] = make(chan [][]byte)
 	}
 
-	//
-	p.threads = 1
-	//
-
 	// Thread calculations
 	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
 	threadsLarge := p.imageHeight % p.threads
@@ -236,7 +242,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		startX := threadsSmallHeight * i
 		endX := threadsSmallHeight * (i + 1)
 		// Start workers here for better performance
-		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth, &group)
+		go worker(p, &workerChannels[i], startX, endX, 0, p.imageWidth, &group)
 	}
 
 	for i := 0; i < threadsLarge; i++ {
@@ -251,7 +257,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
 		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
 		// Start workers here for better performance
-		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth, &group)
+		go worker(p, &workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth, &group)
 	}
 
 	var turns = 0
@@ -302,14 +308,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 				}
 			}
 		}
-
-		for i := range world {
-			for j := range world[i] {
-				fmt.Print(world[i][j], " ")
-			}
-			fmt.Println()
-		}
-		fmt.Println("MUIE2")
 
 		for t := 0; t < threadsLarge; t++ {
 			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
