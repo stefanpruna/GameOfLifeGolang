@@ -71,7 +71,6 @@ func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, 
 				world[i][j] = <-inputByte
 			}
 		}
-
 		for i := 1; i < endX-startX+1; i++ {
 			for j := startY; j < endY; j++ {
 				switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
@@ -180,16 +179,36 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		chans[i] = make(chan [][]byte)
 	}
 
+	// Thread calculations
+	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
+	threadsLarge := p.imageHeight % p.threads
+	threadsSmall := p.threads - p.imageHeight%p.threads
+
+	threadsLargeHeight := p.imageHeight/p.threads + 1
+	threadsSmallHeight := p.imageHeight / p.threads
+
 	// Worker channels
 	var inputByte = make([]chan byte, p.threads)
 	var outputByte = make([]chan byte, p.threads)
 
-	for i := 0; i < p.threads; i++ {
-		inputByte[i] = make(chan byte, p.imageHeight/p.threads*p.imageWidth)
-		outputByte[i] = make(chan byte, p.imageHeight/p.threads*p.imageWidth)
+	for i := 0; i < threadsSmall; i++ {
+		inputByte[i] = make(chan byte, threadsSmallHeight+2)
+		outputByte[i] = make(chan byte, threadsSmallHeight*p.imageWidth)
 
+		startX := threadsSmallHeight * i
+		endX := threadsSmallHeight * (i + 1)
 		// Start workers here for better performance
-		go worker(p, inputByte[i], p.imageHeight/p.threads*i, p.imageHeight/p.threads*(i+1), 0, p.imageWidth, outputByte[i], &group)
+		go worker(p, inputByte[i], startX, endX, 0, p.imageWidth, outputByte[i], &group)
+	}
+
+	for i := 0; i < threadsLarge; i++ {
+		inputByte[i+threadsSmall] = make(chan byte, threadsLargeHeight+2)
+		outputByte[i+threadsSmall] = make(chan byte, threadsLargeHeight*p.imageWidth)
+
+		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
+		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
+		// Start workers here for better performance
+		go worker(p, inputByte[i+threadsSmall], startX, endX, 0, p.imageWidth, outputByte[i+threadsSmall], &group)
 	}
 
 	var turns = 0
@@ -199,62 +218,56 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
 
-	// Thread calculations
-	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
-	threadsLarge := p.imageHeight % p.threads
-	threadsSmall := p.threads - p.imageHeight%p.threads
-
-	threadsLargeHeight := p.imageHeight/p.threads + 1
-	threadsSmallHeight := p.imageHeight / p.threads
-
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns = 0; turns < p.turns; turns++ {
 
-
-		for t := 0; t < p.threads; t++ {
+		for t := 0; t < threadsSmall; t++ {
 
 			group.Add(1)
 
-			for i := p.imageHeight/p.threads*t - 1; i < p.imageHeight/p.threads*(t+1)+1; i++ {
+			startX := threadsSmallHeight * t
+			endX := threadsSmallHeight * (t + 1)
+
+			for i := startX - 1; i < endX+1; i++ {
 				for j := 0; j < p.imageWidth; j++ {
 					inputByte[t] <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
 				}
 			}
-
-/*
-		var group sync.WaitGroup
-
-		for t := 0; t < threadsSmall; t++ {
-			group.Add(1)
-			go worker(p, world, threadsSmallHeight*t, threadsSmallHeight*(t+1), 0, p.imageWidth, chans[t], &group)
 		}
+
 		for t := 0; t < threadsLarge; t++ {
+
 			group.Add(1)
-			go worker(p, world, threadsSmallHeight*threadsSmall+threadsLargeHeight*t,
-				threadsSmallHeight*threadsSmall+threadsLargeHeight*(t+1), 0, p.imageWidth, chans[threadsSmall+t], &group)
-*/
+
+			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+			endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
+
+			for i := startX - 1; i < endX+1; i++ {
+				for j := 0; j < p.imageWidth; j++ {
+					inputByte[t+threadsSmall] <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+				}
+			}
 		}
 
 		group.Wait()
 
-
-		for t := 0; t < p.threads; t++ {
-			for x := 0; x < p.imageHeight/p.threads; x++ {
-				for y := 0; y < p.imageWidth; y++ {
-					world[x+p.imageHeight/p.threads*t][y] = <-outputByte[t]
-				}
-/*
 		for t := 0; t < threadsSmall; t++ {
-			channelOutput := <-chans[t]
+			startX := threadsSmallHeight * t
+
 			for x := 0; x < threadsSmallHeight; x++ {
-				world[threadsSmallHeight*t+x] = channelOutput[x]
+				for y := 0; y < p.imageWidth; y++ {
+					world[x+startX][y] = <-outputByte[t]
+				}
 			}
 		}
+
 		for t := 0; t < threadsLarge; t++ {
-			channelOutput := <-chans[threadsSmall+t]
+			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+
 			for x := 0; x < threadsLargeHeight; x++ {
-				world[threadsSmallHeight*threadsSmall+threadsLargeHeight*t+x] = channelOutput[x]
-*/
+				for y := 0; y < p.imageWidth; y++ {
+					world[x+startX][y] = <-outputByte[t+threadsSmall]
+				}
 			}
 		}
 
