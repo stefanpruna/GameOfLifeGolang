@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	//"time"
 )
 
 // Modulus that only returns positive number
@@ -64,67 +63,33 @@ func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, 
 		world[i] = make([]byte, endY-startY)
 	}
 
-	for i := range world {
-		for j := 0; j < p.imageWidth; j++ {
-			world[i][j] = <-inputByte
-		}
-	}
-
-	for i := 1; i < endX-startX+1; i++ {
-		for j := startY; j < endY; j++ {
-			switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
-			case -1:
-				outputByte <- 0x00
-			case 1:
-				outputByte <- 0xFF
-			case 0:
-				outputByte <- world[i][j]
+	for {
+		for i := range world {
+			for j := 0; j < p.imageWidth; j++ {
+				world[i][j] = <-inputByte
 			}
 		}
-	}
 
-	group.Done()
-}
-
-// Sends world to output
-func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
-	d.io.command <- ioOutput
-	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x") + "_state_" + strconv.Itoa(state)
-	for i := range world {
-		for j := range world[i] {
-			d.io.world <- world[i][j]
-		}
-	}
-}
-
-func ioController(world [][]byte, p golParams, d distributorChans, keyChan <-chan rune, turns *int, paused *bool, resume chan<- bool, quit *bool) {
-	for !*quit {
-		select {
-		case k := <-keyChan:
-			if k == 's' {
-				outputWorld(p, *turns, d, world)
-			} else if k == 'p' {
-				*paused = !(*paused)
-				if *paused {
-					fmt.Println("Pausing. The turn number", *turns, "is currently being processed.")
-				} else {
-					fmt.Println("Continuing.")
-					resume <- true
+		for i := 1; i < endX-startX+1; i++ {
+			for j := startY; j < endY; j++ {
+				switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
+				case -1:
+					outputByte <- 0x00
+				case 1:
+					outputByte <- 0xFF
+				case 0:
+					outputByte <- world[i][j]
 				}
-			} else if k == 'q' {
-				fmt.Println("Quitting simulation and outputting final state of the world.")
-				if *paused {
-					*paused = false
-					resume <- true
-				}
-				*quit = true
 			}
 		}
+
+		group.Done()
 	}
+
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
+func distributor(p golParams, d distributorChans, alive chan []cell) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -147,37 +112,33 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
+	// Wait group
+	var group sync.WaitGroup
+
 	// Make channels
 	var chans = make([]chan [][]byte, p.threads)
 	for i := 0; i < p.threads; i++ {
 		chans[i] = make(chan [][]byte)
 	}
 
+	// Worker channels
 	var inputByte = make([]chan byte, p.threads)
 	var outputByte = make([]chan byte, p.threads)
 
 	for i := 0; i < p.threads; i++ {
 		inputByte[i] = make(chan byte, p.imageHeight/p.threads*p.imageWidth)
 		outputByte[i] = make(chan byte, p.imageHeight/p.threads*p.imageWidth)
+
+		// Start workers here for better performance
+		go worker(p, inputByte[i], p.imageHeight/p.threads*i, p.imageHeight/p.threads*(i+1), 0, p.imageWidth, outputByte[i], &group)
 	}
-  
-	var turns int = 0
-	var paused bool = false
-	var quit bool = false
-	var resume = make(chan bool)
-
-	go ioController(world, p, d, keyChan, &turns, &paused, resume, &quit)
-
 
 	// Calculate the new state of Game of Life after the given number of turns.
-	for turns = 0; turns < p.turns; turns++ {
+	for turns := 0; turns < p.turns; turns++ {
 
-		var group sync.WaitGroup
 		for t := 0; t < p.threads; t++ {
 
 			group.Add(1)
-
-			go worker(p, inputByte[t], p.imageHeight/p.threads*t, p.imageHeight/p.threads*(t+1), 0, p.imageWidth, outputByte[t], &group)
 
 			for i := p.imageHeight/p.threads*t - 1; i < p.imageHeight/p.threads*(t+1)+1; i++ {
 				for j := 0; j < p.imageWidth; j++ {
@@ -195,14 +156,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 					world[x+p.imageHeight/p.threads*t][y] = <-outputByte[t]
 				}
 			}
-		}<<<<<<< Stage_1b
-
-		if paused {
-			<-resume
-		}
-		if quit {
-			outputWorld(p, turns, d, world)
-			break
 		}
 
 	}
