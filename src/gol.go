@@ -19,6 +19,17 @@ func positiveModulo(x, m int) int {
 	}
 }
 
+// Sends world to output
+func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
+	d.io.command <- ioOutput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x") + "_state_" + strconv.Itoa(state)
+	for i := range world {
+		for j := range world[i] {
+			d.io.world <- world[i][j]
+		}
+	}
+}
+
 // Return the number of alive neighbours
 func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
 	aliveNeighbours := 0
@@ -159,6 +170,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 
 	}
+
+	outputWorld(p, p.turns, d, world)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
