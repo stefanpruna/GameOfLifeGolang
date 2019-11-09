@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Modulus that only returns positive number
@@ -68,7 +67,7 @@ func getNewState(numberOfAlive int, cellState bool) int {
 }
 
 // Worker function
-func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, outputByte chan<- byte, group *sync.WaitGroup) {
+func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, outputByte chan<- byte) {
 	world := make([][]byte, endX-startX+2)
 	for i := range world {
 		world[i] = make([]byte, endY-startY)
@@ -93,8 +92,6 @@ func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, 
 				}
 			}
 		}
-
-		group.Done()
 	}
 
 }
@@ -123,9 +120,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
-	// Wait group
-	var group sync.WaitGroup
-
 	// Make channels
 	var chans = make([]chan [][]byte, p.threads)
 	for i := 0; i < p.threads; i++ {
@@ -141,25 +135,19 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		outputByte[i] = make(chan byte, p.imageHeight/p.threads*p.imageWidth)
 
 		// Start workers here for better performance
-		go worker(p, inputByte[i], p.imageHeight/p.threads*i, p.imageHeight/p.threads*(i+1), 0, p.imageWidth, outputByte[i], &group)
+		go worker(p, inputByte[i], p.imageHeight/p.threads*i, p.imageHeight/p.threads*(i+1), 0, p.imageWidth, outputByte[i])
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
 
 		for t := 0; t < p.threads; t++ {
-
-			group.Add(1)
-
 			for i := p.imageHeight/p.threads*t - 1; i < p.imageHeight/p.threads*(t+1)+1; i++ {
 				for j := 0; j < p.imageWidth; j++ {
 					inputByte[t] <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
 				}
 			}
-
 		}
-
-		group.Wait()
 
 		for t := 0; t < p.threads; t++ {
 			for x := 0; x < p.imageHeight/p.threads; x++ {
