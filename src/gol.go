@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	//"time"
 )
@@ -59,7 +58,7 @@ func getNewState(numberOfAlive int, cellState bool) int {
 }
 
 // Worker function
-func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, outputByte chan<- byte, group *sync.WaitGroup) {
+func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, outputByte chan<- byte) {
 	world := make([][]byte, endX-startX+2)
 	for i := range world {
 		world[i] = make([]byte, endY-startY)
@@ -83,8 +82,6 @@ func worker(p golParams, inputByte <-chan byte, startX, endX, startY, endY int, 
 				}
 			}
 		}
-
-		group.Done()
 	}
 }
 
@@ -170,9 +167,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
-	// Wait group
-	var group sync.WaitGroup
-
 	// Make channels
 	var chans = make([]chan [][]byte, p.threads)
 	for i := 0; i < p.threads; i++ {
@@ -198,7 +192,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		startX := threadsSmallHeight * i
 		endX := threadsSmallHeight * (i + 1)
 		// Start workers here for better performance
-		go worker(p, inputByte[i], startX, endX, 0, p.imageWidth, outputByte[i], &group)
+		go worker(p, inputByte[i], startX, endX, 0, p.imageWidth, outputByte[i])
 	}
 
 	for i := 0; i < threadsLarge; i++ {
@@ -208,7 +202,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
 		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
 		// Start workers here for better performance
-		go worker(p, inputByte[i+threadsSmall], startX, endX, 0, p.imageWidth, outputByte[i+threadsSmall], &group)
+		go worker(p, inputByte[i+threadsSmall], startX, endX, 0, p.imageWidth, outputByte[i+threadsSmall])
 	}
 
 	var turns = 0
@@ -222,9 +216,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	for turns = 0; turns < p.turns; turns++ {
 
 		for t := 0; t < threadsSmall; t++ {
-
-			group.Add(1)
-
 			startX := threadsSmallHeight * t
 			endX := threadsSmallHeight * (t + 1)
 
@@ -236,9 +227,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 
 		for t := 0; t < threadsLarge; t++ {
-
-			group.Add(1)
-
 			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
 			endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
 
@@ -248,8 +236,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 				}
 			}
 		}
-
-		group.Wait()
 
 		for t := 0; t < threadsSmall; t++ {
 			startX := threadsSmallHeight * t
