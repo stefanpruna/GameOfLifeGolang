@@ -16,6 +16,11 @@ type workerChannel struct {
 	distributorOutput chan int
 }
 
+const (
+	pause  = iota
+	resume = iota
+)
+
 // Modulus that only returns positive number
 func positiveModulo(x, m int) int {
 	if x > 0 {
@@ -84,17 +89,32 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 		}
 	}
 
-	halo0 := true
-	halo1 := true
 	for i := range world {
 		for j := range world[i] {
 			world[i][j] = newWorld[i][j]
 		}
 	}
 
+	halo0 := true
+	halo1 := true
+	stopAtTurn := -2
+
 	for turn := 0; turn < p.turns; {
 
-		// Process somethings
+		if turn == stopAtTurn+1 {
+			fmt.Println("Paused after turn", turn)
+			channels.distributorOutput <- pause
+			for {
+				r := <-channels.distributorInput
+				if r == resume {
+					break
+				} else {
+					fmt.Println("r = ", r)
+				}
+			}
+		}
+
+		// Process something
 		if turn != 0 {
 			if !halo0 {
 				select {
@@ -105,10 +125,8 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 					}
 					halo0 = true
 				case <-channels.distributorInput:
-					fmt.Println("in")
 					channels.distributorOutput <- turn
-					stopAtTurn := <-channels.distributorInput
-					fmt.Println(stopAtTurn)
+					stopAtTurn = <-channels.distributorInput
 				}
 			}
 			if !halo1 {
@@ -120,10 +138,8 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 					}
 					halo1 = true
 				case <-channels.distributorInput:
-					fmt.Println("in")
 					channels.distributorOutput <- turn
-					stopAtTurn := <-channels.distributorInput
-					fmt.Println(stopAtTurn)
+					stopAtTurn = <-channels.distributorInput
 				}
 			}
 		}
@@ -158,10 +174,8 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 						}
 						out0 = true
 					case <-channels.distributorInput:
-						fmt.Println("in")
 						channels.distributorOutput <- turn
-						stopAtTurn := <-channels.distributorInput
-						fmt.Println(stopAtTurn)
+						stopAtTurn = <-channels.distributorInput
 					}
 				}
 				if !out1 {
@@ -172,10 +186,8 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 						}
 						out1 = true
 					case <-channels.distributorInput:
-						fmt.Println("in")
 						channels.distributorOutput <- turn
-						stopAtTurn := <-channels.distributorInput
-						fmt.Println(stopAtTurn)
+						stopAtTurn = <-channels.distributorInput
 					}
 				}
 			}
@@ -363,37 +375,54 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
-	fmt.Println("aaa")
+	paused := false
 	for q := false; q != true; {
 		select {
 		case k := <-keyChan:
 			if k == 'p' {
-				fmt.Println("aaa")
-				for i := 0; i < p.threads; i++ {
-					workerChannels[i].distributorInput <- 1
-				}
-				fmt.Println("bbb")
-				stopAtTurn := 0
-				for i := 0; i < p.threads; i++ {
-					t := <-workerChannels[i].distributorOutput
-					if t > stopAtTurn {
-						stopAtTurn = t
+				paused = !paused
+				if paused {
+					// Get turn from all workers
+					for i := 0; i < p.threads; i++ {
+						workerChannels[i].distributorInput <- pause
 					}
-					fmt.Println(t)
+
+					// Compute turn to be stopped after
+					stopAtTurn := 0
+					for i := 0; i < p.threads; i++ {
+						t := <-workerChannels[i].distributorOutput
+						if t > stopAtTurn {
+							stopAtTurn = t
+						}
+					}
+
+					// Tell all workers to stop after turn stopAtTurn
+					for i := 0; i < p.threads; i++ {
+						workerChannels[i].distributorInput <- stopAtTurn
+					}
+
+					for i := 0; i < p.threads; i++ {
+						r := <-workerChannels[i].distributorOutput
+						if r != pause {
+							fmt.Println("Something has gone wrong, r =", r)
+						}
+					}
+					fmt.Println("Pausing. The turn number", stopAtTurn+1, "is currently being processed.")
+					// Paused until resume
+				} else {
+					// Resume all workers
+					for i := 0; i < p.threads; i++ {
+						workerChannels[i].distributorInput <- resume
+					}
+					fmt.Println("Continuing.")
 				}
-				fmt.Println("meow")
-				for i := 0; i < p.threads; i++ {
-					workerChannels[i].distributorInput <- stopAtTurn
-				}
-				fmt.Println("finished, stop at", stopAtTurn)
 			}
 			if k == 'q' {
 				q = true
 			}
-			fmt.Println(k)
 		case o := <-workerChannels[0].distributorOutput:
 			if o != -1 {
-				fmt.Println("Something has gone wrong")
+				fmt.Println("Something has gone wrong, o =", o)
 			}
 			for i := 1; i < p.threads; i++ {
 				<-workerChannels[i].distributorOutput
