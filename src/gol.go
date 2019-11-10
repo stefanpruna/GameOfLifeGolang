@@ -10,8 +10,10 @@ import (
 type workerChannel struct {
 	inputByte,
 	outputByte chan byte
-	inputHalo  [2]chan byte
-	outputHalo [2]chan byte
+	inputHalo         [2]chan byte
+	outputHalo        [2]chan byte
+	distributorInput  chan int
+	distributorOutput chan int
 }
 
 // Modulus that only returns positive number
@@ -64,7 +66,8 @@ func getNewState(numberOfAlive int, cellState bool) int {
 }
 
 // Worker function
-func worker(p golParams, channels *workerChannel, startX, endX, startY, endY int) {
+func worker(p golParams, channels workerChannel, startX, endX, startY, endY int) {
+
 	world := make([][]byte, endX-startX+2)
 	for i := range world {
 		world[i] = make([]byte, endY-startY)
@@ -81,48 +84,119 @@ func worker(p golParams, channels *workerChannel, startX, endX, startY, endY int
 		}
 	}
 
-	// TODO add pause
-	for it := 0; it < p.turns; it++ {
-		for i := range world {
-			for j := range world[i] {
-				world[i][j] = newWorld[i][j]
-			}
+	halo0 := true
+	halo1 := true
+	for i := range world {
+		for j := range world[i] {
+			world[i][j] = newWorld[i][j]
 		}
+	}
 
-		// Receive new halo lines
+	for turn := 0; turn < p.turns; {
 
-		if it != 0 {
-			for j := 0; j < p.imageWidth; j++ {
-				world[0][j] = <-channels.inputHalo[0]
-				world[endX-startX+1][j] = <-channels.inputHalo[1]
+		// Process somethings
+		if turn != 0 {
+			if !halo0 {
+				select {
+				case c := <-channels.inputHalo[0]:
+					world[0][0] = c
+					for j := 1; j < p.imageWidth; j++ {
+						world[0][j] = <-channels.inputHalo[0]
+					}
+					halo0 = true
+				case <-channels.distributorInput:
+					fmt.Println("in")
+					channels.distributorOutput <- turn
+					stopAtTurn := <-channels.distributorInput
+					fmt.Println(stopAtTurn)
+				}
 			}
-		}
-
-		for i := 1; i < endX-startX+1; i++ {
-			for j := startY; j < endY; j++ {
-				switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
-				case -1:
-					newWorld[i][j] = 0x00
-				case 1:
-					newWorld[i][j] = 0xFF
-				case 0:
-					newWorld[i][j] = world[i][j]
+			if !halo1 {
+				select {
+				case c := <-channels.inputHalo[1]:
+					world[endX-startX+1][0] = c
+					for j := 1; j < p.imageWidth; j++ {
+						world[endX-startX+1][j] = <-channels.inputHalo[1]
+					}
+					halo1 = true
+				case <-channels.distributorInput:
+					fmt.Println("in")
+					channels.distributorOutput <- turn
+					stopAtTurn := <-channels.distributorInput
+					fmt.Println(stopAtTurn)
 				}
 			}
 		}
 
-		// Send new halo lines
-		for j := 0; j < p.imageWidth; j++ {
-			channels.outputHalo[0] <- newWorld[1][j]
-			channels.outputHalo[1] <- newWorld[endX-startX][j]
+		// Move on to next turn
+		if halo0 && halo1 {
+
+			for i := 1; i < endX-startX+1; i++ {
+				for j := startY; j < endY; j++ {
+					switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
+					case -1:
+						newWorld[i][j] = 0x00
+					case 1:
+						newWorld[i][j] = 0xFF
+					case 0:
+						newWorld[i][j] = world[i][j]
+					}
+				}
+			}
+			halo0 = false
+			halo1 = false
+			turn++
+
+			out0 := false
+			out1 := false
+			for !(out0 && out1) {
+				if !out0 {
+					select {
+					case channels.outputHalo[0] <- newWorld[1][0]:
+						for j := 1; j < p.imageWidth; j++ {
+							channels.outputHalo[0] <- newWorld[1][j]
+						}
+						out0 = true
+					case <-channels.distributorInput:
+						fmt.Println("in")
+						channels.distributorOutput <- turn
+						stopAtTurn := <-channels.distributorInput
+						fmt.Println(stopAtTurn)
+					}
+				}
+				if !out1 {
+					select {
+					case channels.outputHalo[1] <- newWorld[endX-startX][0]:
+						for j := 1; j < p.imageWidth; j++ {
+							channels.outputHalo[1] <- newWorld[endX-startX][j]
+						}
+						out1 = true
+					case <-channels.distributorInput:
+						fmt.Println("in")
+						channels.distributorOutput <- turn
+						stopAtTurn := <-channels.distributorInput
+						fmt.Println(stopAtTurn)
+					}
+				}
+			}
+
+			for i := range world {
+				for j := range world[i] {
+					world[i][j] = newWorld[i][j]
+				}
+			}
 		}
 
 	}
+
 	for i := 1; i < endX-startX+1; i++ {
 		for j := startY; j < endY; j++ {
 			channels.outputByte <- newWorld[i][j]
 		}
 	}
+
+	// Done
+	channels.distributorOutput <- -1
 
 }
 
@@ -230,14 +304,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		workerChannels[i].outputByte = make(chan byte, threadsSmallHeight*p.imageWidth)
 		workerChannels[i].inputHalo[0] = make(chan byte, p.imageWidth)
 		workerChannels[i].inputHalo[1] = make(chan byte, p.imageWidth)
+		workerChannels[i].distributorInput = make(chan int, 1)
+		workerChannels[i].distributorOutput = make(chan int, 1)
 
 		workerChannels[positiveModulo(i-1, p.threads)].outputHalo[1] = workerChannels[i].inputHalo[0]
 		workerChannels[positiveModulo(i+1, p.threads)].outputHalo[0] = workerChannels[i].inputHalo[1]
-
-		startX := threadsSmallHeight * i
-		endX := threadsSmallHeight * (i + 1)
-		// Start workers here for better performance
-		go worker(p, &workerChannels[i], startX, endX, 0, p.imageWidth)
 	}
 
 	for i := 0; i < threadsLarge; i++ {
@@ -245,75 +316,109 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		workerChannels[i+threadsSmall].outputByte = make(chan byte, threadsLargeHeight*p.imageWidth)
 		workerChannels[i+threadsSmall].inputHalo[0] = make(chan byte, p.imageWidth)
 		workerChannels[i+threadsSmall].inputHalo[1] = make(chan byte, p.imageWidth)
+		workerChannels[i+threadsSmall].distributorInput = make(chan int, 1)
+		workerChannels[i+threadsSmall].distributorOutput = make(chan int, 1)
 
 		workerChannels[positiveModulo(i+threadsSmall-1, p.threads)].outputHalo[1] = workerChannels[i+threadsSmall].inputHalo[0]
 		workerChannels[positiveModulo(i+threadsSmall+1, p.threads)].outputHalo[0] = workerChannels[i+threadsSmall].inputHalo[1]
+	}
 
+	for i := 0; i < threadsSmall; i++ {
+		startX := threadsSmallHeight * i
+		endX := threadsSmallHeight * (i + 1)
+		// Start workers here for better performance
+		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
+	}
+
+	for i := 0; i < threadsLarge; i++ {
 		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
 		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
 		// Start workers here for better performance
-		go worker(p, &workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
+		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
 	}
 
-	var turns = 0
-	var paused = false
-	var quit = false
-	var resume = make(chan bool)
-
-	go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
+	//go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
 
 	// Calculate the new state of Game of Life after the given number of turns.
-	for turns = 0; turns < 1; turns++ {
 
-		for t := 0; t < threadsSmall; t++ {
-			startX := threadsSmallHeight * t
-			endX := threadsSmallHeight * (t + 1)
+	for t := 0; t < threadsSmall; t++ {
+		startX := threadsSmallHeight * t
+		endX := threadsSmallHeight * (t + 1)
 
-			for i := startX - 1; i < endX+1; i++ {
-				for j := 0; j < p.imageWidth; j++ {
-					workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
-				}
+		for i := startX - 1; i < endX+1; i++ {
+			for j := 0; j < p.imageWidth; j++ {
+				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
 			}
 		}
+	}
 
-		for t := 0; t < threadsLarge; t++ {
-			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-			endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
+	for t := 0; t < threadsLarge; t++ {
+		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
 
-			for i := startX - 1; i < endX+1; i++ {
-				for j := 0; j < p.imageWidth; j++ {
-					workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
-				}
+		for i := startX - 1; i < endX+1; i++ {
+			for j := 0; j < p.imageWidth; j++ {
+				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
 			}
 		}
+	}
 
-		for t := 0; t < threadsSmall; t++ {
-			startX := threadsSmallHeight * t
-			for x := 0; x < threadsSmallHeight; x++ {
-				for y := 0; y < p.imageWidth; y++ {
-					world[x+startX][y] = <-workerChannels[t].outputByte
+	fmt.Println("aaa")
+	for q := false; q != true; {
+		select {
+		case k := <-keyChan:
+			if k == 'p' {
+				fmt.Println("aaa")
+				for i := 0; i < p.threads; i++ {
+					workerChannels[i].distributorInput <- 1
 				}
+				fmt.Println("bbb")
+				stopAtTurn := 0
+				for i := 0; i < p.threads; i++ {
+					t := <-workerChannels[i].distributorOutput
+					if t > stopAtTurn {
+						stopAtTurn = t
+					}
+					fmt.Println(t)
+				}
+				fmt.Println("meow")
+				for i := 0; i < p.threads; i++ {
+					workerChannels[i].distributorInput <- stopAtTurn
+				}
+				fmt.Println("finished, stop at", stopAtTurn)
+			}
+			if k == 'q' {
+				q = true
+			}
+			fmt.Println(k)
+		case o := <-workerChannels[0].distributorOutput:
+			if o != -1 {
+				fmt.Println("Something has gone wrong")
+			}
+			for i := 1; i < p.threads; i++ {
+				<-workerChannels[i].distributorOutput
+			}
+			q = true
+		}
+	}
+
+	for t := 0; t < threadsSmall; t++ {
+		startX := threadsSmallHeight * t
+		for x := 0; x < threadsSmallHeight; x++ {
+			for y := 0; y < p.imageWidth; y++ {
+				world[x+startX][y] = <-workerChannels[t].outputByte
 			}
 		}
+	}
 
-		for t := 0; t < threadsLarge; t++ {
-			startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+	for t := 0; t < threadsLarge; t++ {
+		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
 
-			for x := 0; x < threadsLargeHeight; x++ {
-				for y := 0; y < p.imageWidth; y++ {
-					world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
-				}
+		for x := 0; x < threadsLargeHeight; x++ {
+			for y := 0; y < p.imageWidth; y++ {
+				world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
 			}
 		}
-
-		if paused {
-			<-resume
-		}
-		if quit {
-			outputWorld(p, turns, d, world)
-			break
-		}
-
 	}
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
