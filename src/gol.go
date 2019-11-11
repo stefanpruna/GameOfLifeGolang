@@ -19,6 +19,8 @@ type workerChannel struct {
 const (
 	pause  = iota
 	resume = iota
+	quit   = iota
+	save   = iota
 )
 
 // Modulus that only returns positive number
@@ -108,6 +110,14 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 				r := <-channels.distributorInput
 				if r == resume {
 					break
+				} else if r == save {
+					for i := 1; i < endX-startX+1; i++ {
+						for j := startY; j < endY; j++ {
+							channels.outputByte <- newWorld[i][j]
+						}
+					}
+				} else if r == quit {
+					return
 				} else {
 					fmt.Println("r = ", r)
 				}
@@ -349,10 +359,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
 	}
 
-	//go eventController(world, p, d, keyChan, &turns, &paused, resume, &quit)
-
 	// Calculate the new state of Game of Life after the given number of turns.
-
 	for t := 0; t < threadsSmall; t++ {
 		startX := threadsSmallHeight * t
 		endX := threadsSmallHeight * (t + 1)
@@ -375,50 +382,109 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
+	stopAtTurn := 0
 	paused := false
+	timer := time.NewTimer(2 * time.Second)
 	for q := false; q != true; {
 		select {
+		case <-timer.C:
+			// Get alive cells
+			alive := 0
+
+			for i := 0; i < p.threads; i++ {
+				workerChannels[i].distributorInput <- ping
+			}
+			for i := 0; i < p.threads; i++ {
+				alive += <-workerChannels[i].distributorOutput
+			}
+
+			fmt.Println("There are", alive, "alive cells in the world.")
+			if !paused {
+				timer = time.NewTimer(2 * time.Second)
+			}
 		case k := <-keyChan:
-			if k == 'p' {
-				paused = !paused
-				if paused {
+			if k == 'p' || k == 's' || k == 'q' {
+				// If not already paused
+				if !paused {
 					// Get turn from all workers
 					for i := 0; i < p.threads; i++ {
 						workerChannels[i].distributorInput <- pause
 					}
-
 					// Compute turn to be stopped after
-					stopAtTurn := 0
 					for i := 0; i < p.threads; i++ {
 						t := <-workerChannels[i].distributorOutput
 						if t > stopAtTurn {
 							stopAtTurn = t
 						}
 					}
-
 					// Tell all workers to stop after turn stopAtTurn
 					for i := 0; i < p.threads; i++ {
 						workerChannels[i].distributorInput <- stopAtTurn
 					}
-
 					for i := 0; i < p.threads; i++ {
 						r := <-workerChannels[i].distributorOutput
 						if r != pause {
 							fmt.Println("Something has gone wrong, r =", r)
 						}
 					}
-					fmt.Println("Pausing. The turn number", stopAtTurn+1, "is currently being processed.")
 					// Paused until resume
-				} else {
+					if k == 'p' {
+						fmt.Println("Pausing. The turn number", stopAtTurn+1, "is currently being processed.")
+					}
+				} else if k == 'p' { // If this was a pause command and we are already paused, resume
 					// Resume all workers
 					for i := 0; i < p.threads; i++ {
 						workerChannels[i].distributorInput <- resume
 					}
 					fmt.Println("Continuing.")
 				}
-			}
-			if k == 'q' {
-				q = true
+				// If this was a save or quit command
+				if k == 's' || k == 'q' {
+					if k == 's' {
+						fmt.Println("Saving on turn", stopAtTurn)
+					} else {
+						fmt.Println("Saving and quitting on turn", stopAtTurn)
+					}
+					for i := 0; i < p.threads; i++ {
+						workerChannels[i].distributorInput <- save
+					}
+					// If not saving while already paused
+					if !paused {
+						for i := 0; i < p.threads; i++ {
+							workerChannels[i].distributorInput <- resume
+						}
+					}
+					// Get the world and save it
+					for t := 0; t < threadsSmall; t++ {
+						startX := threadsSmallHeight * t
+						for x := 0; x < threadsSmallHeight; x++ {
+							for y := 0; y < p.imageWidth; y++ {
+								world[x+startX][y] = <-workerChannels[t].outputByte
+							}
+						}
+					}
+					for t := 0; t < threadsLarge; t++ {
+						startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+						for x := 0; x < threadsLargeHeight; x++ {
+							for y := 0; y < p.imageWidth; y++ {
+								world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
+							}
+						}
+					}
+					outputWorld(p, stopAtTurn, d, world)
+
+					// Quit workers
+					if k == 'q' {
+						for i := 0; i < p.threads; i++ {
+							workerChannels[i].distributorInput <- quit
+							q = true
+						}
+					}
+				}
+				// If this was a pause command, actually pause
+				if k == 'p' {
+					paused = !paused
+				}
 			}
 		case o := <-workerChannels[0].distributorOutput:
 			if o != -1 {
@@ -428,25 +494,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 				<-workerChannels[i].distributorOutput
 			}
 			q = true
-		}
-	}
-
-	for t := 0; t < threadsSmall; t++ {
-		startX := threadsSmallHeight * t
-		for x := 0; x < threadsSmallHeight; x++ {
-			for y := 0; y < p.imageWidth; y++ {
-				world[x+startX][y] = <-workerChannels[t].outputByte
-			}
-		}
-	}
-
-	for t := 0; t < threadsLarge; t++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-
-		for x := 0; x < threadsLargeHeight; x++ {
-			for y := 0; y < p.imageWidth; y++ {
-				world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
-			}
 		}
 	}
 
