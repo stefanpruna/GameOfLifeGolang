@@ -244,47 +244,8 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	}
 }
 
-// distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
-
-	// Create the 2D slice to store the world.
-	world := make([][]byte, p.imageHeight)
-	for i := range world {
-		world[i] = make([]byte, p.imageWidth)
-	}
-
-	// Request the io goroutine to read in the image with the given filename.
-	d.io.command <- ioInput
-	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x")
-
-	// The io goroutine sends the requested image byte by byte, in rows.
-	for y := 0; y < p.imageHeight; y++ {
-		for x := 0; x < p.imageWidth; x++ {
-			val := <-d.io.inputVal
-			if val != 0 {
-				fmt.Println("Alive cell at", x, y)
-				world[y][x] = val
-			}
-		}
-	}
-
-	// Make channels
-	var chans = make([]chan [][]byte, p.threads)
-	for i := 0; i < p.threads; i++ {
-		chans[i] = make(chan [][]byte)
-	}
-
-	// Thread calculations
-	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
-	threadsLarge := p.imageHeight % p.threads
-	threadsSmall := p.threads - p.imageHeight%p.threads
-
-	threadsLargeHeight := p.imageHeight/p.threads + 1
-	threadsSmallHeight := p.imageHeight / p.threads
-
-	// Worker channels
-	workerChannels := make([]workerChannel, p.threads)
-
+// initialise worker channels
+func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int, p golParams) {
 	for i := 0; i < threadsSmall; i++ {
 		workerChannels[i].inputByte = make(chan byte, threadsSmallHeight+2)
 		workerChannels[i].outputByte = make(chan byte, threadsSmallHeight*p.imageWidth)
@@ -308,44 +269,9 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		workerChannels[positiveModulo(i+threadsSmall-1, p.threads)].outputHalo[1] = workerChannels[i+threadsSmall].inputHalo[0]
 		workerChannels[positiveModulo(i+threadsSmall+1, p.threads)].outputHalo[0] = workerChannels[i+threadsSmall].inputHalo[1]
 	}
+}
 
-	for i := 0; i < threadsSmall; i++ {
-		startX := threadsSmallHeight * i
-		endX := threadsSmallHeight * (i + 1)
-		// Start workers here for better performance
-		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
-	}
-
-	for i := 0; i < threadsLarge; i++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
-		// Start workers here for better performance
-		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
-	}
-
-	// Calculate the new state of Game of Life after the given number of turns.
-	for t := 0; t < threadsSmall; t++ {
-		startX := threadsSmallHeight * t
-		endX := threadsSmallHeight * (t + 1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
-			}
-		}
-	}
-
-	for t := 0; t < threadsLarge; t++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
-			}
-		}
-	}
-
+func workerController(p golParams, world [][]byte, workerChannels []workerChannel, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
 	timer := time.NewTimer(2 * time.Second)
@@ -496,6 +422,87 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 			q = true
 		}
 	}
+}
+
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
+
+	// Create the 2D slice to store the world.
+	world := make([][]byte, p.imageHeight)
+	for i := range world {
+		world[i] = make([]byte, p.imageWidth)
+	}
+
+	// Request the io goroutine to read in the image with the given filename.
+	d.io.command <- ioInput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x")
+
+	// The io goroutine sends the requested image byte by byte, in rows.
+	for y := 0; y < p.imageHeight; y++ {
+		for x := 0; x < p.imageWidth; x++ {
+			val := <-d.io.inputVal
+			if val != 0 {
+				fmt.Println("Alive cell at", x, y)
+				world[y][x] = val
+			}
+		}
+	}
+
+	// Make channels
+	var chans = make([]chan [][]byte, p.threads)
+	for i := 0; i < p.threads; i++ {
+		chans[i] = make(chan [][]byte)
+	}
+
+	// Thread calculations
+	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
+	threadsLarge := p.imageHeight % p.threads
+	threadsSmall := p.threads - p.imageHeight%p.threads
+
+	threadsLargeHeight := p.imageHeight/p.threads + 1
+	threadsSmallHeight := p.imageHeight / p.threads
+
+	// Worker channels
+	workerChannels := make([]workerChannel, p.threads)
+	initialiseChannels(workerChannels, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
+
+	// start workers
+	for i := 0; i < threadsSmall; i++ {
+		startX := threadsSmallHeight * i
+		endX := threadsSmallHeight * (i + 1)
+		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
+	}
+
+	for i := 0; i < threadsLarge; i++ {
+		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
+		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
+		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
+	}
+
+	// send data to workers
+	for t := 0; t < threadsSmall; t++ {
+		startX := threadsSmallHeight * t
+		endX := threadsSmallHeight * (t + 1)
+
+		for i := startX - 1; i < endX+1; i++ {
+			for j := 0; j < p.imageWidth; j++ {
+				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+			}
+		}
+	}
+	for t := 0; t < threadsLarge; t++ {
+		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
+
+		for i := startX - 1; i < endX+1; i++ {
+			for j := 0; j < p.imageWidth; j++ {
+				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+			}
+		}
+	}
+
+	// main worker controller function
+	workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
