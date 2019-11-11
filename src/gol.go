@@ -18,6 +18,7 @@ type workerChannel struct {
 
 const (
 	pause  = iota
+	ping   = iota
 	resume = iota
 	quit   = iota
 	save   = iota
@@ -104,7 +105,6 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 	for turn := 0; turn < p.turns; {
 
 		if turn == stopAtTurn+1 {
-			fmt.Println("Paused after turn", turn)
 			channels.distributorOutput <- pause
 			for {
 				r := <-channels.distributorInput
@@ -118,8 +118,19 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 					}
 				} else if r == quit {
 					return
+				} else if r == ping {
+					alive := 0
+					for i := 1; i < endX-startX+1; i++ {
+						for j := startY; j < endY; j++ {
+							if newWorld[i][j] == 0xFF {
+								alive++
+							}
+						}
+					}
+					channels.distributorOutput <- alive
+					break
 				} else {
-					fmt.Println("r = ", r)
+					fmt.Println("Something went wrong, r = ", r)
 				}
 			}
 		}
@@ -229,53 +240,6 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	for i := range world {
 		for j := range world[i] {
 			d.io.world <- world[i][j]
-		}
-	}
-}
-
-// Returns number of alive cells in the world.
-func getAlive(world [][]byte) int {
-	r := 0
-	for i := range world {
-		for j := range world[i] {
-			if world[i][j] == 0x00 {
-				r++
-			}
-		}
-	}
-	return r
-}
-
-func eventController(world [][]byte, p golParams, d distributorChans, keyChan <-chan rune, turns *int, paused *bool, resume chan<- bool, quit *bool) {
-	timer := time.NewTimer(2 * time.Second)
-	for !*quit {
-		select {
-		case <-timer.C:
-			fmt.Println("There are", getAlive(world), "alive cells in the world.")
-			if !*paused {
-				timer = time.NewTimer(2 * time.Second)
-			}
-		case k := <-keyChan:
-			if k == 's' {
-				outputWorld(p, *turns, d, world)
-			} else if k == 'p' {
-				*paused = !(*paused)
-				if *paused {
-					fmt.Println("Pausing. The turn number", *turns, "is currently being processed.")
-					timer.Stop()
-				} else {
-					fmt.Println("Continuing.")
-					resume <- true
-					timer = time.NewTimer(2 * time.Second)
-				}
-			} else if k == 'q' {
-				fmt.Println("Quitting simulation and outputting final state of the world.")
-				if *paused {
-					*paused = false
-					resume <- true
-				}
-				*quit = true
-			}
 		}
 	}
 }
@@ -391,17 +355,36 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 			// Get alive cells
 			alive := 0
 
-			for i := 0; i < p.threads; i++ {
-				workerChannels[i].distributorInput <- ping
-			}
-			for i := 0; i < p.threads; i++ {
-				alive += <-workerChannels[i].distributorOutput
+			if !paused {
+				for i := 0; i < p.threads; i++ {
+					workerChannels[i].distributorInput <- pause
+				}
+				for i := 0; i < p.threads; i++ {
+					t := <-workerChannels[i].distributorOutput
+					if t > stopAtTurn {
+						stopAtTurn = t
+					}
+				}
+				// Tell all workers to stop after turn stopAtTurn
+				for i := 0; i < p.threads; i++ {
+					workerChannels[i].distributorInput <- stopAtTurn
+				}
+				for i := 0; i < p.threads; i++ {
+					r := <-workerChannels[i].distributorOutput
+					if r != pause {
+						fmt.Println("Something has gone wrong, r =", r)
+					}
+				}
+				for i := 0; i < p.threads; i++ {
+					workerChannels[i].distributorInput <- ping
+				}
+				for i := 0; i < p.threads; i++ {
+					alive += <-workerChannels[i].distributorOutput
+				}
+				fmt.Println("There are", alive, "alive cells in the world.")
 			}
 
-			fmt.Println("There are", alive, "alive cells in the world.")
-			if !paused {
-				timer = time.NewTimer(2 * time.Second)
-			}
+			timer = time.NewTimer(2 * time.Second)
 		case k := <-keyChan:
 			if k == 'p' || k == 's' || k == 'q' {
 				// If not already paused
@@ -492,6 +475,23 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 			}
 			for i := 1; i < p.threads; i++ {
 				<-workerChannels[i].distributorOutput
+			}
+			// Get the world and save it
+			for t := 0; t < threadsSmall; t++ {
+				startX := threadsSmallHeight * t
+				for x := 0; x < threadsSmallHeight; x++ {
+					for y := 0; y < p.imageWidth; y++ {
+						world[x+startX][y] = <-workerChannels[t].outputByte
+					}
+				}
+			}
+			for t := 0; t < threadsLarge; t++ {
+				startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
+				for x := 0; x < threadsLargeHeight; x++ {
+					for y := 0; y < p.imageWidth; y++ {
+						world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
+					}
+				}
 			}
 			q = true
 		}
