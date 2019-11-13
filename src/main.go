@@ -117,7 +117,7 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 	}
 }
 
-const clientNumber = 2
+const clientNumber = 1
 
 var clients = make([]net.Conn, clientNumber)
 

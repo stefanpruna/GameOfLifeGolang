@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"fmt"
 	"net"
 	"strconv"
@@ -425,33 +426,20 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 	}
 }
 
-func intToBytes(x int) []byte {
-	var result = make([]byte, 4)
-	result[0] = byte(x & 0xFF)
-	result[1] = byte((x >> 8) & 0xFF)
-	result[2] = byte((x >> 16) & 0xFF)
-	result[3] = byte((x >> 24) & 0xFF)
-	return result
-}
-
-func bytesToInt(b []byte) int {
-	return (int(b[3]) << 24) | (int(b[2]) << 16) | (int(b[1]) << 8) | int(b[0])
+type initPackage struct {
+	IpBefore, IpAfter string
 }
 
 func startWorkers(conn net.Conn, workers int, ipBefore, ipAfter string) {
-	var packet []byte
-	packet = append(packet, INIT)
-	packet = append(packet, byte(len(ipBefore)))
-	packet = append(packet, ipBefore...)
-	packet = append(packet, byte(len(ipAfter)))
-	packet = append(packet, ipAfter...)
+	encoder := gob.NewEncoder(conn)
 
-	// Append the length to the front of the packet
+	_ = encoder.Encode(INIT)
+	err := encoder.Encode(initPackage{ipBefore, ipAfter})
+	if err != nil {
+		fmt.Println("Err", err)
+	}
+	fmt.Println("done")
 
-	packet = append(intToBytes(len(packet)), packet...)
-
-	fmt.Println(packet)
-	_, _ = conn.Write(packet)
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -502,13 +490,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	clientLargeWorkers := p.threads/clientNumber + 1
 	clientSmallWorkers := p.threads / clientNumber
-
-	for i := 0; i < 100000; i++ {
-		if i != bytesToInt(intToBytes(i)) {
-			fmt.Println("OH NOOOOOOOOOOOOOOOOO", i)
-			break
-		}
-	}
 
 	// Start workers on remote machines
 	for i := 0; i < clientNumber; i++ {
