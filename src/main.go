@@ -1,6 +1,10 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"fmt"
+	"net"
+)
 
 // golParams provides the details of how to run the Game of Life and which image to load.
 type golParams struct {
@@ -98,6 +102,29 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	return alive
 }
 
+func listenForClients(clientNumber int, clients []net.Conn) {
+
+	ln, err := net.Listen("tcp", ":4000")
+	if err != nil {
+		// handle error
+	}
+
+	if ln != nil {
+		for i := 0; i < clientNumber; i++ {
+			conn, _ := ln.Accept()
+			clients[i] = conn
+		}
+	}
+}
+
+const clientNumber = 2
+
+var clients = make([]net.Conn, clientNumber)
+
+const (
+	INIT = 0
+)
+
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
 func main() {
@@ -124,6 +151,12 @@ func main() {
 	flag.Parse()
 
 	params.turns = 50000
+
+	listenForClients(clientNumber, clients)
+
+	for _, c := range clients {
+		fmt.Println(c.RemoteAddr().String())
+	}
 
 	startControlServer(params)
 	keyChan := make(chan rune)
