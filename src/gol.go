@@ -427,14 +427,25 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 }
 
 type initPackage struct {
+	workers           int
 	IpBefore, IpAfter string
+	turns             int
+	width             int
 }
 
-func startWorkers(conn net.Conn, workers int, ipBefore, ipAfter string) {
+type workerPackage struct {
+	startX int
+	endX   int
+}
+
+func startWorkers(conn net.Conn, p initPackage, workerP []workerPackage) {
 	encoder := gob.NewEncoder(conn)
 
 	_ = encoder.Encode(INIT)
-	err := encoder.Encode(initPackage{ipBefore, ipAfter})
+	err := encoder.Encode(p)
+	for it := range workerP {
+		_ = encoder.Encode(it)
+	}
 	if err != nil {
 		fmt.Println("Err", err)
 	}
