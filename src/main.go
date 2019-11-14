@@ -122,7 +122,8 @@ const clientNumber = 1
 var clients = make([]net.Conn, clientNumber)
 
 const (
-	INIT = 0
+	INIT     = 0
+	INITDATA = 1
 )
 
 // main is the function called when starting Game of Life with 'make gol'

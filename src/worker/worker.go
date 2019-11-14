@@ -9,8 +9,10 @@ import (
 const hostname = "localhost:"
 
 const (
-	INIT = 0
+	INIT     = 0
+	INITDATA = 1
 )
+
 const (
 	pause  = iota
 	ping   = iota

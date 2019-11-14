@@ -12,8 +12,6 @@ import (
 type workerChannel struct {
 	inputByte,
 	outputByte chan byte
-	inputHalo         [2]chan byte
-	outputHalo        [2]chan byte
 	distributorInput  chan int
 	distributorOutput chan int
 }
@@ -26,7 +24,6 @@ const (
 	save   = iota
 )
 
-// Modulus that only returns positive number
 func positiveModulo(x, m int) int {
 	if x > 0 {
 		return x % m
@@ -36,203 +33,6 @@ func positiveModulo(x, m int) int {
 		}
 		return x % m
 	}
-}
-
-// Return the number of alive neighbours
-func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
-	aliveNeighbours := 0
-
-	dx := [8]int{-1, -1, 0, 1, 1, 1, 0, -1}
-	dy := [8]int{0, 1, 1, 1, 0, -1, -1, -1}
-
-	for i := 0; i < 8; i++ {
-		newX := x + dx[i]
-		newY := positiveModulo(y+dy[i], imageWidth)
-		if world[newX][newY] == 0xFF {
-			aliveNeighbours++
-		}
-	}
-	return aliveNeighbours
-}
-
-// Returns the new state of a cell from the number of alive neighbours and current state
-func getNewState(numberOfAlive int, cellState bool) int {
-	if cellState == true {
-		if numberOfAlive < 2 {
-			return -1
-		}
-		if numberOfAlive <= 3 {
-			return 0
-		}
-		if numberOfAlive > 3 {
-			return -1
-		}
-	} else {
-		if numberOfAlive == 3 {
-			return 1
-		}
-	}
-	return 0
-}
-
-// Worker function
-func worker(p golParams, channels workerChannel, startX, endX, startY, endY int) {
-
-	world := make([][]byte, endX-startX+2)
-	for i := range world {
-		world[i] = make([]byte, endY-startY)
-	}
-
-	newWorld := make([][]byte, endX-startX+2)
-	for i := range world {
-		newWorld[i] = make([]byte, endY-startY)
-	}
-
-	for i := range world {
-		for j := 0; j < p.imageWidth; j++ {
-			newWorld[i][j] = <-channels.inputByte
-		}
-	}
-
-	for i := range world {
-		for j := range world[i] {
-			world[i][j] = newWorld[i][j]
-		}
-	}
-
-	halo0 := true
-	halo1 := true
-	stopAtTurn := -2
-
-	for turn := 0; turn < p.turns; {
-
-		if turn == stopAtTurn+1 {
-			channels.distributorOutput <- pause
-			for {
-				r := <-channels.distributorInput
-				if r == resume {
-					break
-				} else if r == save {
-					for i := 1; i < endX-startX+1; i++ {
-						for j := startY; j < endY; j++ {
-							channels.outputByte <- newWorld[i][j]
-						}
-					}
-				} else if r == quit {
-					return
-				} else if r == ping {
-					alive := 0
-					for i := 1; i < endX-startX+1; i++ {
-						for j := startY; j < endY; j++ {
-							if newWorld[i][j] == 0xFF {
-								alive++
-							}
-						}
-					}
-					channels.distributorOutput <- alive
-					break
-				} else {
-					fmt.Println("Something went wrong, r = ", r)
-				}
-			}
-		}
-
-		// Process something
-		if turn != 0 {
-			if !halo0 {
-				select {
-				case c := <-channels.inputHalo[0]:
-					world[0][0] = c
-					for j := 1; j < p.imageWidth; j++ {
-						world[0][j] = <-channels.inputHalo[0]
-					}
-					halo0 = true
-				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
-					stopAtTurn = <-channels.distributorInput
-				}
-			}
-			if !halo1 {
-				select {
-				case c := <-channels.inputHalo[1]:
-					world[endX-startX+1][0] = c
-					for j := 1; j < p.imageWidth; j++ {
-						world[endX-startX+1][j] = <-channels.inputHalo[1]
-					}
-					halo1 = true
-				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
-					stopAtTurn = <-channels.distributorInput
-				}
-			}
-		}
-
-		// Move on to next turn
-		if halo0 && halo1 {
-
-			for i := 1; i < endX-startX+1; i++ {
-				for j := startY; j < endY; j++ {
-					switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
-					case -1:
-						newWorld[i][j] = 0x00
-					case 1:
-						newWorld[i][j] = 0xFF
-					case 0:
-						newWorld[i][j] = world[i][j]
-					}
-				}
-			}
-			halo0 = false
-			halo1 = false
-			turn++
-
-			out0 := false
-			out1 := false
-			for !(out0 && out1) {
-				if !out0 {
-					select {
-					case channels.outputHalo[0] <- newWorld[1][0]:
-						for j := 1; j < p.imageWidth; j++ {
-							channels.outputHalo[0] <- newWorld[1][j]
-						}
-						out0 = true
-					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
-						stopAtTurn = <-channels.distributorInput
-					}
-				}
-				if !out1 {
-					select {
-					case channels.outputHalo[1] <- newWorld[endX-startX][0]:
-						for j := 1; j < p.imageWidth; j++ {
-							channels.outputHalo[1] <- newWorld[endX-startX][j]
-						}
-						out1 = true
-					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
-						stopAtTurn = <-channels.distributorInput
-					}
-				}
-			}
-
-			for i := range world {
-				for j := range world[i] {
-					world[i][j] = newWorld[i][j]
-				}
-			}
-		}
-
-	}
-
-	for i := 1; i < endX-startX+1; i++ {
-		for j := startY; j < endY; j++ {
-			channels.outputByte <- newWorld[i][j]
-		}
-	}
-
-	// Done
-	channels.distributorOutput <- -1
-
 }
 
 // Sends world to output
@@ -251,25 +51,17 @@ func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSma
 	for i := 0; i < threadsSmall; i++ {
 		workerChannels[i].inputByte = make(chan byte, threadsSmallHeight+2)
 		workerChannels[i].outputByte = make(chan byte, threadsSmallHeight*p.imageWidth)
-		workerChannels[i].inputHalo[0] = make(chan byte, p.imageWidth)
-		workerChannels[i].inputHalo[1] = make(chan byte, p.imageWidth)
+
 		workerChannels[i].distributorInput = make(chan int, 1)
 		workerChannels[i].distributorOutput = make(chan int, 1)
-
-		workerChannels[positiveModulo(i-1, p.threads)].outputHalo[1] = workerChannels[i].inputHalo[0]
-		workerChannels[positiveModulo(i+1, p.threads)].outputHalo[0] = workerChannels[i].inputHalo[1]
 	}
 
 	for i := 0; i < threadsLarge; i++ {
 		workerChannels[i+threadsSmall].inputByte = make(chan byte, threadsLargeHeight+2)
 		workerChannels[i+threadsSmall].outputByte = make(chan byte, threadsLargeHeight*p.imageWidth)
-		workerChannels[i+threadsSmall].inputHalo[0] = make(chan byte, p.imageWidth)
-		workerChannels[i+threadsSmall].inputHalo[1] = make(chan byte, p.imageWidth)
+
 		workerChannels[i+threadsSmall].distributorInput = make(chan int, 1)
 		workerChannels[i+threadsSmall].distributorOutput = make(chan int, 1)
-
-		workerChannels[positiveModulo(i+threadsSmall-1, p.threads)].outputHalo[1] = workerChannels[i+threadsSmall].inputHalo[0]
-		workerChannels[positiveModulo(i+threadsSmall+1, p.threads)].outputHalo[0] = workerChannels[i+threadsSmall].inputHalo[1]
 	}
 }
 
@@ -438,14 +230,20 @@ type workerPackage struct {
 	endX   int
 }
 
-func startWorkers(conn net.Conn, p initPackage, workerP []workerPackage) {
+func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
 	encoder := gob.NewEncoder(conn)
 
+	// The next packet is an init package
 	_ = encoder.Encode(INIT)
-	err := encoder.Encode(p)
-	for it := range workerP {
-		_ = encoder.Encode(it)
+
+	// Send the init package
+	err := encoder.Encode(initP)
+
+	// Send worker packages
+	for _, p := range workerP {
+		_ = encoder.Encode(p)
 	}
+
 	if err != nil {
 		fmt.Println("Err", err)
 	}
@@ -515,15 +313,15 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// start workers
 	for i := 0; i < threadsSmall; i++ {
-		startX := threadsSmallHeight * i
-		endX := threadsSmallHeight * (i + 1)
-		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
+		//startX := threadsSmallHeight * i
+		//endX := threadsSmallHeight * (i + 1)
+		//go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
 	}
 
 	for i := 0; i < threadsLarge; i++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
-		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
+		//startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
+		//endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
+		//go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
 	}
 
 	// send data to workers
