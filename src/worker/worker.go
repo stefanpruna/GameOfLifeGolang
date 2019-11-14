@@ -67,20 +67,6 @@ func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
 	return aliveNeighbours
 }
 
-func serve(clients []net.Conn) {
-	ln, err := net.Listen("tcp", ":4001")
-	if err != nil {
-		// handle error
-	}
-
-	if ln != nil {
-		for i := 0; i < 2; i++ {
-			conn, _ := ln.Accept()
-			clients[i] = conn
-		}
-	}
-}
-
 // Returns the new state of a cell from the number of alive neighbours and current state
 func getNewState(numberOfAlive int, cellState bool) int {
 	if cellState == true {
@@ -99,22 +85,6 @@ func getNewState(numberOfAlive int, cellState bool) int {
 		}
 	}
 	return 0
-}
-
-func listenSocket(ip string, c chan byte, width int) {
-	conn, _ := net.Dial("tcp", ip+":4001")
-	dec := gob.NewDecoder(conn)
-	for {
-		var haloData = make([]byte, width)
-		err := dec.Decode(&haloData)
-		if err != nil {
-			fmt.Println("err", err)
-			break
-		}
-		for _, b := range haloData {
-			c <- b
-		}
-	}
 }
 
 func worker(imageWidth int, turns int, channels workerChannel, startX, endX, startY, endY int) {
@@ -299,9 +269,14 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 
 }
 
-func distributor( encoder gob.Encoder, decoder gob.Decoder) {
+func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
+	var haloClients = make([]net.Conn, 2)
+	var done = make(chan byte)
+	go serve(haloClients, done)
+
 	var p initPackage
 	err := decoder.Decode(&p)
+
 	if err != nil {
 		fmt.Println("err", err)
 	}
@@ -313,22 +288,87 @@ func distributor( encoder gob.Encoder, decoder gob.Decoder) {
 		if err != nil {
 			fmt.Println("err", err)
 			break
-
 		}
-       workerPackages[i]=w
+
+		workerPackages[i] = w
 		initialiseChannels(workerChannel, p.workers, p.width, w.endX, w.startX, i)
 	}
 
-	for i := 0; i < p.workers; i++ {
-      worker(p.width,p.turns,workerChannel[i],workerPackages[i].startX,workerPackages[i].endX,0,p.width)
+	// Connect to external halo sockets
+	listenToSocket(p.IpBefore, workerChannel[0].inputHalo[0], p.width)
+	listenToSocket(p.IpAfter, workerChannel[p.workers-1].inputHalo[1], p.width)
+
+	<-done
+	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
+	ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
+	if ip0 == p.IpBefore && ip1 == p.IpAfter {
+		sendToSocket(haloClients[0], workerChannel[0].outputHalo[0], p.width)
+		sendToSocket(haloClients[1], workerChannel[p.workers-1].outputHalo[1], p.width)
+	} else if ip0 == p.IpAfter && ip1 == p.IpBefore {
+		sendToSocket(haloClients[1], workerChannel[0].outputHalo[0], p.width)
+		sendToSocket(haloClients[0], workerChannel[p.workers-1].outputHalo[1], p.width)
+	} else {
+		fmt.Println("IPs are mismatched")
 	}
-	//initialiseChannels()
-	//go worker()
+
+	for i := 0; i < p.workers; i++ {
+		worker(p.width, p.turns, workerChannel[i], workerPackages[i].startX, workerPackages[i].endX, 0, p.width)
+	}
+
 }
+
+func sendToSocket(conn net.Conn, c chan byte, width int) {
+	enc := gob.NewEncoder(conn)
+	for {
+		var haloData = make([]byte, width)
+
+		for i := 0; i < width; i++ {
+			haloData[i] = <-c
+		}
+
+		err := enc.Encode(haloData)
+
+		if err != nil {
+			fmt.Println("err", err)
+			break
+		}
+	}
+}
+
+func serve(clients []net.Conn, done chan byte) {
+	ln, err := net.Listen("tcp", ":4001")
+	if err != nil {
+		// handle error
+	}
+
+	if ln != nil {
+		for i := 0; i < 2; i++ {
+			conn, _ := ln.Accept()
+			clients[i] = conn
+		}
+	}
+	done <- 1
+}
+
+func listenToSocket(ip string, c chan byte, width int) {
+	conn, _ := net.Dial("tcp", ip+":4001")
+	dec := gob.NewDecoder(conn)
+	for {
+		var haloData = make([]byte, width)
+		err := dec.Decode(&haloData)
+		if err != nil {
+			fmt.Println("err", err)
+			break
+		}
+		for _, b := range haloData {
+			c <- b
+		}
+	}
 }
 
 func main() {
 	conn, _ := net.Dial("tcp", hostname+"4000")
+
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
@@ -347,8 +387,9 @@ func main() {
 
 		if packetType == INIT {
 
-			fmt.Printf("Received : %+v", p)
-			conn.Close()
+			distributor(enc, dec)
+
+			//conn.Close()
 		}
 	}
 }
