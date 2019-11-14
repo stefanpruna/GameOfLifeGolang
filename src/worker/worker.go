@@ -101,6 +101,22 @@ func getNewState(numberOfAlive int, cellState bool) int {
 	return 0
 }
 
+func listenSocket(ip string, c chan byte, width int) {
+	conn, _ := net.Dial("tcp", ip+":4001")
+	dec := gob.NewDecoder(conn)
+	for {
+		var haloData = make([]byte, width)
+		err := dec.Decode(&haloData)
+		if err != nil {
+			fmt.Println("err", err)
+			break
+		}
+		for _, b := range haloData {
+			c <- b
+		}
+	}
+}
+
 func worker(imageWidth int, turns int, channels workerChannel, startX, endX, startY, endY int) {
 
 	world := make([][]byte, endX-startX+2)
@@ -260,35 +276,61 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 
 }
 
-func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX int) {
+func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
 	height := endX - startX + 1
-	for i := 0; i < workers; i++ {
 
-		workerChannels[i].inputByte = make(chan byte, height+2)
-		workerChannels[i].outputByte = make(chan byte, height*imageWidth)
-		workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
-		workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
-		workerChannels[i].distributorInput = make(chan int, 1)
-		workerChannels[i].distributorOutput = make(chan int, 1)
-		if i == 0 {
-			workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
+	workerChannels[i].inputByte = make(chan byte, height+2)
+	workerChannels[i].outputByte = make(chan byte, height*imageWidth)
+	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
+	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
+	workerChannels[i].distributorInput = make(chan int, 1)
+	workerChannels[i].distributorOutput = make(chan int, 1)
+	if i == 0 {
+		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
+	} else {
+		if i == workers-1 {
+			workerChannels[workers-1].outputHalo[1] = make(chan byte, imageWidth)
 		} else {
-			if i == workers-1 {
-				workerChannels[workers-1].outputHalo[1] = make(chan byte, imageWidth)
-			} else {
-				workerChannels[i-1].outputHalo[1] = workerChannels[i].inputHalo[0]
-				workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
-			}
-
+			workerChannels[i-1].outputHalo[1] = workerChannels[i].inputHalo[0]
+			workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
 		}
 
 	}
 
 }
 
+func distributor( encoder gob.Encoder, decoder gob.Decoder) {
+	var p initPackage
+	err := decoder.Decode(&p)
+	if err != nil {
+		fmt.Println("err", err)
+	}
+	workerChannel := make([]workerChannel, p.workers)
+	workerPackages := make([]workerPackage, p.workers)
+	for i := 0; i < p.workers; i++ {
+		var w workerPackage
+		err = decoder.Decode(&w)
+		if err != nil {
+			fmt.Println("err", err)
+			break
+
+		}
+       workerPackages[i]=w
+		initialiseChannels(workerChannel, p.workers, p.width, w.endX, w.startX, i)
+	}
+
+	for i := 0; i < p.workers; i++ {
+      worker(p.width,p.turns,workerChannel[i],workerPackages[i].startX,workerPackages[i].endX,0,p.width)
+	}
+	//initialiseChannels()
+	//go worker()
+}
+}
+
 func main() {
 	conn, _ := net.Dial("tcp", hostname+"4000")
 	dec := gob.NewDecoder(conn)
+	enc := gob.NewEncoder(conn)
 
 	const clientNumber = 2
 	//var clients = make([]net.Conn, clientNumber)
@@ -304,22 +346,7 @@ func main() {
 		fmt.Println("packet type:", packetType)
 
 		if packetType == INIT {
-			var p initPackage
-			err = dec.Decode(&p)
-			if err != nil {
-				fmt.Println("err", err)
-				break
-			}
-			for i := 0; i < p.workers; i++ {
-				var w initPackage
-				err = dec.Decode(&w)
-				if err != nil {
-					fmt.Println("err", err)
-					break
-				}
-				//initialiseChannels()
-				//go worker()
-			}
+
 			fmt.Printf("Received : %+v", p)
 			conn.Close()
 		}
