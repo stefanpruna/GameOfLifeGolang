@@ -219,15 +219,15 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 }
 
 type initPackage struct {
-	workers           int
+	Workers           int
 	IpBefore, IpAfter string
-	turns             int
-	width             int
+	Turns             int
+	Width             int
 }
 
 type workerPackage struct {
-	startX int
-	endX   int
+	StartX int
+	EndX   int
 }
 
 func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
@@ -366,7 +366,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	}
 
 	// main worker controller function
-	workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
+	//workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell

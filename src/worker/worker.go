@@ -22,15 +22,15 @@ const (
 )
 
 type initPackage struct {
-	workers           int
+	Workers           int
 	IpBefore, IpAfter string
-	turns             int
-	width             int
+	Turns             int
+	Width             int
 }
 
 type workerPackage struct {
-	startX int
-	endX   int
+	StartX int
+	EndX   int
 }
 
 type workerChannel struct {
@@ -284,9 +284,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	if err != nil {
 		fmt.Println("err", err)
 	}
-	workerChannel := make([]workerChannel, p.workers)
-	workerPackages := make([]workerPackage, p.workers)
-	for i := 0; i < p.workers; i++ {
+	workerChannel := make([]workerChannel, p.Workers)
+	workerPackages := make([]workerPackage, p.Workers)
+	for i := 0; i < p.Workers; i++ {
 		var w workerPackage
 		err = decoder.Decode(&w)
 		fmt.Println(w)
@@ -295,31 +295,31 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 			break
 		}
 		//
-		fmt.Println("Received worker package,", w.startX, w.endX)
+		fmt.Println("Received worker package,", w.StartX, w.EndX)
 
 		workerPackages[i] = w
-		initialiseChannels(workerChannel, p.workers, p.width, w.endX, w.startX, i)
+		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)
 	}
 
 	// Connect to external halo sockets
-	listenToSocket(p.IpBefore, workerChannel[0].inputHalo[0], p.width)
-	listenToSocket(p.IpAfter, workerChannel[p.workers-1].inputHalo[1], p.width)
+	listenToSocket(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
+	listenToSocket(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
 
 	<-done
 	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
 	ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
 	if ip0 == p.IpBefore && ip1 == p.IpAfter {
-		sendToSocket(haloClients[0], workerChannel[0].outputHalo[0], p.width)
-		sendToSocket(haloClients[1], workerChannel[p.workers-1].outputHalo[1], p.width)
+		sendToSocket(haloClients[0], workerChannel[0].outputHalo[0], p.Width)
+		sendToSocket(haloClients[1], workerChannel[p.Workers-1].outputHalo[1], p.Width)
 	} else if ip0 == p.IpAfter && ip1 == p.IpBefore {
-		sendToSocket(haloClients[1], workerChannel[0].outputHalo[0], p.width)
-		sendToSocket(haloClients[0], workerChannel[p.workers-1].outputHalo[1], p.width)
+		sendToSocket(haloClients[1], workerChannel[0].outputHalo[0], p.Width)
+		sendToSocket(haloClients[0], workerChannel[p.Workers-1].outputHalo[1], p.Width)
 	} else {
 		fmt.Println("IPs are mismatched")
 	}
 
-	for i := 0; i < p.workers; i++ {
-		worker(p.width, p.turns, workerChannel[i], workerPackages[i].startX, workerPackages[i].endX, 0, p.width)
+	for i := 0; i < p.Workers; i++ {
+		worker(p.Width, p.Turns, workerChannel[i], workerPackages[i].StartX, workerPackages[i].EndX, 0, p.Width)
 	}
 
 }
