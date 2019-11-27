@@ -238,9 +238,11 @@ func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
 
 	// Send the init package
 	err := encoder.Encode(initP)
+	fmt.Println(initP)
 
 	// Send worker packages
 	for _, p := range workerP {
+		fmt.Println(p)
 		_ = encoder.Encode(p)
 	}
 
@@ -300,28 +302,45 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	clientLargeWorkers := p.threads/clientNumber + 1
 	clientSmallWorkers := p.threads / clientNumber
 
+	/*
+		type initPackage struct {
+			workers           int
+			IpBefore, IpAfter string
+			turns             int
+			width             int
+		}
+
+		type workerPackage struct {
+			startX int
+			endX   int
+		}
+	*/
+
+	workerBounds := make([]workerPackage, p.threads)
+	t := 0
+
+	// start workers
+	for i := 0; i < threadsSmall; i++ {
+		workerBounds[t] = workerPackage{threadsSmallHeight * i, threadsSmallHeight * (i + 1)}
+		t++
+	}
+	for i := 0; i < threadsLarge; i++ {
+		workerBounds[t] = workerPackage{threadsSmallHeight*threadsSmall + threadsLargeHeight*i, threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)}
+		t++
+	}
+
+	t = 0
 	// Start workers on remote machines
 	for i := 0; i < clientNumber; i++ {
 		host0, _, _ := net.SplitHostPort(clients[positiveModulo(i-1, clientNumber)].RemoteAddr().String())
 		host1, _, _ := net.SplitHostPort(clients[positiveModulo(i+1, clientNumber)].RemoteAddr().String())
 		if i < clientSmall {
-			startWorkers(clients[i], clientSmallWorkers, host0, host1)
+			startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth}, workerBounds[t:t+clientSmallWorkers])
+			t += clientSmallWorkers
 		} else {
-			startWorkers(clients[i], clientLargeWorkers, host0, host1)
+			startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth}, workerBounds[t:t+clientLargeWorkers])
+			t += clientLargeWorkers
 		}
-	}
-
-	// start workers
-	for i := 0; i < threadsSmall; i++ {
-		//startX := threadsSmallHeight * i
-		//endX := threadsSmallHeight * (i + 1)
-		//go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
-	}
-
-	for i := 0; i < threadsLarge; i++ {
-		//startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
-		//endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
-		//go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
 	}
 
 	// send data to workers

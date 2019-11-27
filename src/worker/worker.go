@@ -32,6 +32,7 @@ type workerPackage struct {
 	startX int
 	endX   int
 }
+
 type workerChannel struct {
 	inputByte,
 	outputByte chan byte
@@ -278,6 +279,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 
 	var p initPackage
 	err := decoder.Decode(&p)
+	fmt.Println(p)
 
 	if err != nil {
 		fmt.Println("err", err)
@@ -287,10 +289,13 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	for i := 0; i < p.workers; i++ {
 		var w workerPackage
 		err = decoder.Decode(&w)
+		fmt.Println(w)
 		if err != nil {
 			fmt.Println("err", err)
 			break
 		}
+		//
+		fmt.Println("Received worker package,", w.startX, w.endX)
 
 		workerPackages[i] = w
 		initialiseChannels(workerChannel, p.workers, p.width, w.endX, w.startX, i)
@@ -391,7 +396,7 @@ func main() {
 
 			distributor(enc, dec)
 
-			//conn.Close()
+			conn.Close()
 		}
 	}
 }
