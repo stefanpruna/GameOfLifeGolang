@@ -91,7 +91,11 @@ func getNewState(numberOfAlive int, cellState bool) int {
 	return 0
 }
 
-func worker(imageWidth int, turns int, channels workerChannel, startX, endX, startY, endY int) {
+func worker(p initPackage, channels workerChannel, wp workerPackage) {
+	endX := wp.EndX
+	startX := wp.StartX
+	endY := p.Width
+	startY := 0
 
 	world := make([][]byte, endX-startX+2)
 	for i := range world {
@@ -104,7 +108,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 	}
 
 	for i := range world {
-		for j := 0; j < imageWidth; j++ {
+		for j := 0; j < endY; j++ {
 			newWorld[i][j] = <-channels.inputByte
 		}
 	}
@@ -119,7 +123,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 	halo1 := true
 	stopAtTurn := -2
 
-	for turn := 0; turn < turns; {
+	for turn := 0; turn < p.Turns; {
 
 		if turn == stopAtTurn+1 {
 			channels.distributorOutput <- pause
@@ -158,7 +162,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 				select {
 				case c := <-channels.inputHalo[0]:
 					world[0][0] = c
-					for j := 1; j < imageWidth; j++ {
+					for j := 1; j < endY; j++ {
 						world[0][j] = <-channels.inputHalo[0]
 					}
 					halo0 = true
@@ -171,7 +175,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 				select {
 				case c := <-channels.inputHalo[1]:
 					world[endX-startX+1][0] = c
-					for j := 1; j < imageWidth; j++ {
+					for j := 1; j < endY; j++ {
 						world[endX-startX+1][j] = <-channels.inputHalo[1]
 					}
 					halo1 = true
@@ -187,7 +191,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 
 			for i := 1; i < endX-startX+1; i++ {
 				for j := startY; j < endY; j++ {
-					switch getNewState(getAliveNeighbours(world, i, j, imageWidth), world[i][j] == 0xFF) {
+					switch getNewState(getAliveNeighbours(world, i, j, endY), world[i][j] == 0xFF) {
 					case -1:
 						newWorld[i][j] = 0x00
 					case 1:
@@ -207,7 +211,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 				if !out0 {
 					select {
 					case channels.outputHalo[0] <- newWorld[1][0]:
-						for j := 1; j < imageWidth; j++ {
+						for j := 1; j < endY; j++ {
 							channels.outputHalo[0] <- newWorld[1][j]
 						}
 						out0 = true
@@ -219,7 +223,7 @@ func worker(imageWidth int, turns int, channels workerChannel, startX, endX, sta
 				if !out1 {
 					select {
 					case channels.outputHalo[1] <- newWorld[endX-startX][0]:
-						for j := 1; j < imageWidth; j++ {
+						for j := 1; j < endY; j++ {
 							channels.outputHalo[1] <- newWorld[endX-startX][j]
 						}
 						out1 = true
@@ -320,7 +324,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	}
 
 	for i := 0; i < p.Workers; i++ {
-		worker(p.Width, p.Turns, workerChannel[i], workerPackages[i].StartX, workerPackages[i].EndX, 0, p.Width)
+		worker(p, workerChannel[i], workerPackages[i])
 	}
 
 }
