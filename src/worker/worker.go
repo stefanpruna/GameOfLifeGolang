@@ -109,7 +109,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 
 	for i := range world {
 		for j := 0; j < endY; j++ {
-			newWorld[i][j] = <-channels.inputByte
+			newWorld[i][j] = wp.World[i][j]
 		}
 	}
 
