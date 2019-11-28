@@ -320,13 +320,27 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	workerBounds := make([]workerPackage, p.threads)
 	t := 0
 
+	// Copy of world, but with extra 2 lines (one at the start, one at the end)
+	borderedWorld := make([][]byte, p.imageHeight+2)
+	for i := range world {
+		borderedWorld[i+1] = world[i]
+	}
+	borderedWorld[0] = world[p.imageHeight-1]
+	borderedWorld[p.imageHeight+1] = world[0]
+
 	// start workers
 	for i := 0; i < threadsSmall; i++ {
-		workerBounds[t] = workerPackage{threadsSmallHeight * i, threadsSmallHeight * (i + 1), world[threadsSmallHeight*i : threadsSmallHeight*(i+1)]}
+		workerBounds[t] = workerPackage{
+			threadsSmallHeight * i,
+			threadsSmallHeight * (i + 1),
+			borderedWorld[(threadsSmallHeight)*i : (threadsSmallHeight)*(i+1)+2]}
 		t++
 	}
 	for i := 0; i < threadsLarge; i++ {
-		workerBounds[t] = workerPackage{threadsSmallHeight*threadsSmall + threadsLargeHeight*i, threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1), world[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)]}
+		workerBounds[t] = workerPackage{
+			threadsSmallHeight*threadsSmall + threadsLargeHeight*i,
+			threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1),
+			borderedWorld[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)+2]}
 		t++
 	}
 
@@ -351,7 +365,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 		for i := startX - 1; i < endX+1; i++ {
 			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][j]
 			}
 		}
 	}
@@ -361,7 +375,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 		for i := startX - 1; i < endX+1; i++ {
 			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][j]
 			}
 		}
 	}

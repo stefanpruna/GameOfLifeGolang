@@ -124,6 +124,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 	stopAtTurn := -2
 
 	for turn := 0; turn < p.Turns; {
+		fmt.Println("At turn", turn)
 
 		if turn == stopAtTurn+1 {
 			channels.distributorOutput <- pause
@@ -263,11 +264,14 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
 	workerChannels[i].distributorInput = make(chan int, 1)
 	workerChannels[i].distributorOutput = make(chan int, 1)
+
 	if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
+		workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
 	} else {
 		if i == workers-1 {
 			workerChannels[workers-1].outputHalo[1] = make(chan byte, imageWidth)
+			workerChannels[i-1].outputHalo[1] = workerChannels[i].inputHalo[0]
 		} else {
 			workerChannels[i-1].outputHalo[1] = workerChannels[i].inputHalo[0]
 			workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
@@ -280,7 +284,7 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	var haloClients = make([]net.Conn, 2)
 	var done = make(chan byte)
-	go serve(haloClients, done)
+	go waitForClients(haloClients, done)
 
 	var p initPackage
 	err := decoder.Decode(&p)
@@ -306,30 +310,36 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)
 	}
 
+	//workerChannel[0].outputHalo[0] = workerChannel[p.Workers-1].inputHalo[1]
+	//workerChannel[p.Workers - 1].outputHalo[1] = workerChannel[0].inputHalo[0]
+
 	// Connect to external halo sockets
-	listenToSocket(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
-	listenToSocket(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
+	go receiveFromClient(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
+	go receiveFromClient(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
 
 	<-done
 	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
 	ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
 	if ip0 == p.IpBefore && ip1 == p.IpAfter {
-		sendToSocket(haloClients[0], workerChannel[0].outputHalo[0], p.Width)
-		sendToSocket(haloClients[1], workerChannel[p.Workers-1].outputHalo[1], p.Width)
+		go serveToClient(haloClients[0], workerChannel[0].outputHalo[0], p.Width)
+		go serveToClient(haloClients[1], workerChannel[p.Workers-1].outputHalo[1], p.Width)
 	} else if ip0 == p.IpAfter && ip1 == p.IpBefore {
-		sendToSocket(haloClients[1], workerChannel[0].outputHalo[0], p.Width)
-		sendToSocket(haloClients[0], workerChannel[p.Workers-1].outputHalo[1], p.Width)
+		go serveToClient(haloClients[1], workerChannel[0].outputHalo[0], p.Width)
+		go serveToClient(haloClients[0], workerChannel[p.Workers-1].outputHalo[1], p.Width)
 	} else {
 		fmt.Println("IPs are mismatched")
 	}
-
+	fmt.Println("workers", p.Workers)
 	for i := 0; i < p.Workers; i++ {
-		worker(p, workerChannel[i], workerPackages[i])
+		go worker(p, workerChannel[i], workerPackages[i])
 	}
 
+	fmt.Println("All workers active")
+	<-workerChannel[0].distributorOutput
+	fmt.Println("Done")
 }
 
-func sendToSocket(conn net.Conn, c chan byte, width int) {
+func serveToClient(conn net.Conn, c chan byte, width int) {
 	enc := gob.NewEncoder(conn)
 	for {
 		var haloData = make([]byte, width)
@@ -339,6 +349,7 @@ func sendToSocket(conn net.Conn, c chan byte, width int) {
 		}
 
 		err := enc.Encode(haloData)
+		fmt.Println("Sent halo to socket,", haloData)
 
 		if err != nil {
 			fmt.Println("err", err)
@@ -347,7 +358,7 @@ func sendToSocket(conn net.Conn, c chan byte, width int) {
 	}
 }
 
-func serve(clients []net.Conn, done chan byte) {
+func waitForClients(clients []net.Conn, done chan byte) {
 	ln, err := net.Listen("tcp", ":4001")
 	if err != nil {
 		// handle error
@@ -362,16 +373,20 @@ func serve(clients []net.Conn, done chan byte) {
 	done <- 1
 }
 
-func listenToSocket(ip string, c chan byte, width int) {
+func receiveFromClient(ip string, c chan byte, width int) {
 	conn, _ := net.Dial("tcp", ip+":4001")
 	dec := gob.NewDecoder(conn)
 	for {
 		var haloData = make([]byte, width)
 		err := dec.Decode(&haloData)
+		fmt.Println("Received from socket,", haloData)
+
 		if err != nil {
 			fmt.Println("err", err)
 			break
 		}
+
+		// Take bytes from haloData row slice and put them in the channel
 		for _, b := range haloData {
 			c <- b
 		}
