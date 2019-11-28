@@ -35,8 +35,7 @@ type workerPackage struct {
 }
 
 type workerChannel struct {
-	inputByte,
-	outputByte chan byte
+	outputByte        chan byte
 	inputHalo         [2]chan byte
 	outputHalo        [2]chan byte
 	distributorInput  chan int
@@ -258,7 +257,6 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
 	height := endX - startX + 1
 
-	workerChannels[i].inputByte = make(chan byte, height+2)
 	workerChannels[i].outputByte = make(chan byte, height*imageWidth)
 	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)

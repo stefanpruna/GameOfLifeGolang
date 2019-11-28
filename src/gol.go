@@ -303,20 +303,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	clientLargeWorkers := p.threads/clientNumber + 1
 	clientSmallWorkers := p.threads / clientNumber
 
-	/*
-		type initPackage struct {
-			workers           int
-			IpBefore, IpAfter string
-			turns             int
-			width             int
-		}
-
-		type workerPackage struct {
-			startX int
-			endX   int
-		}
-	*/
-
 	workerBounds := make([]workerPackage, p.threads)
 	t := 0
 
