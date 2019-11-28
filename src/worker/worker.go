@@ -6,7 +6,7 @@ import (
 	"net"
 )
 
-const hostname = "localhost:"
+const hostname = "127.0.0.1:"
 
 const (
 	INIT     = 0
@@ -31,6 +31,7 @@ type initPackage struct {
 type workerPackage struct {
 	StartX int
 	EndX   int
+	World  [][]byte
 }
 
 type workerChannel struct {

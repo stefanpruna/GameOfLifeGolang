@@ -228,6 +228,7 @@ type initPackage struct {
 type workerPackage struct {
 	StartX int
 	EndX   int
+	World  [][]byte
 }
 
 func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
@@ -321,11 +322,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// start workers
 	for i := 0; i < threadsSmall; i++ {
-		workerBounds[t] = workerPackage{threadsSmallHeight * i, threadsSmallHeight * (i + 1)}
+		workerBounds[t] = workerPackage{threadsSmallHeight * i, threadsSmallHeight * (i + 1), world[threadsSmallHeight*i : threadsSmallHeight*(i+1)]}
 		t++
 	}
 	for i := 0; i < threadsLarge; i++ {
-		workerBounds[t] = workerPackage{threadsSmallHeight*threadsSmall + threadsLargeHeight*i, threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)}
+		workerBounds[t] = workerPackage{threadsSmallHeight*threadsSmall + threadsLargeHeight*i, threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1), world[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)]}
 		t++
 	}
 
