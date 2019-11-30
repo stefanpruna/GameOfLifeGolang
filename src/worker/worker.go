@@ -345,7 +345,7 @@ func serveToClient(conn net.Conn, c chan byte, width int) {
 		}
 
 		err := enc.Encode(haloData)
-		fmt.Println("Sent halo to socket,", haloData)
+		//fmt.Println("Sent halo to socket,", haloData)
 
 		if err != nil {
 			fmt.Println("err", err)
