@@ -396,7 +396,6 @@ func main() {
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
-	const clientNumber = 2
 	//var clients = make([]net.Conn, clientNumber)
 
 	for {
