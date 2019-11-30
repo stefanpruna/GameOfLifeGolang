@@ -411,7 +411,8 @@ func main() {
 
 			distributor(enc, dec)
 
-			//conn.Close()
+			time.Sleep(time.Second)
+			conn.Close()
 		}
 	}
 }

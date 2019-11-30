@@ -152,7 +152,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 2500
+	params.turns = 10
 
 	listenForClients(clientNumber, clients)
 
