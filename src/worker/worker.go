@@ -391,7 +391,7 @@ func receiveFromClient(ip string, c chan byte, width int) {
 
 func main() {
 	conn, _ := net.Dial("tcp4", hostname+"4000")
-
+	fmt.Println("Dialed")
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
