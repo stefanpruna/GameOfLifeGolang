@@ -392,10 +392,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
+	outputWorld(p, 500, d, world)
+
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle
 	<-d.io.idle
-
 	// Return the coordinates of cells that are still alive.
 	alive <- finalAlive
 }
