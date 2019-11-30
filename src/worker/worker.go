@@ -287,7 +287,6 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 
 	var p initPackage
 	err := decoder.Decode(&p)
-	fmt.Println(p)
 
 	if err != nil {
 		fmt.Println("err", err)
@@ -297,13 +296,13 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	for i := 0; i < p.Workers; i++ {
 		var w workerPackage
 		err = decoder.Decode(&w)
-		fmt.Println(w)
+		//fmt.Println(w)
 		if err != nil {
 			fmt.Println("err", err)
 			break
 		}
 		//
-		fmt.Println("Received worker package,", w.StartX, w.EndX)
+		//fmt.Println("Received worker package,", w.StartX, w.EndX)
 
 		workerPackages[i] = w
 		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)

@@ -111,6 +111,7 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 
 	if ln != nil {
 		for i := 0; i < clientNumber; i++ {
+			fmt.Println("Accepted client number", i)
 			conn, _ := ln.Accept()
 			clients[i] = conn
 		}
@@ -134,7 +135,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		8,
+		16,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
@@ -151,7 +152,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 500
+	params.turns = 2500
 
 	listenForClients(clientNumber, clients)
 
