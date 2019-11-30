@@ -375,7 +375,7 @@ func receiveFromClient(ip string, c chan byte, width int) {
 	for {
 		var haloData = make([]byte, width)
 		err := dec.Decode(&haloData)
-		fmt.Println("Received from socket,", haloData)
+		//fmt.Println("Received from socket,", haloData)
 
 		if err != nil {
 			fmt.Println("err", err)

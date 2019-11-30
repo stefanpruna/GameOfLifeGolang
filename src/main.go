@@ -111,8 +111,8 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 
 	if ln != nil {
 		for i := 0; i < clientNumber; i++ {
-			fmt.Println("Accepted client number", i)
 			conn, _ := ln.Accept()
+			fmt.Println("Accepted client number", i)
 			clients[i] = conn
 		}
 	}
