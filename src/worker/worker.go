@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
+	"time"
 )
 
 const hostname = "127.0.0.1:"
@@ -32,14 +33,19 @@ type workerPackage struct {
 	StartX int
 	EndX   int
 	World  [][]byte
+	Index  int
 }
 
 type workerChannel struct {
-	outputByte        chan byte
 	inputHalo         [2]chan byte
 	outputHalo        [2]chan byte
 	distributorInput  chan int
 	distributorOutput chan int
+}
+
+type worldPackage struct {
+	Index       int
+	OutputWorld [][]byte
 }
 
 func positiveModulo(x, m int) int {
@@ -90,7 +96,7 @@ func getNewState(numberOfAlive int, cellState bool) int {
 	return 0
 }
 
-func worker(p initPackage, channels workerChannel, wp workerPackage) {
+func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *gob.Encoder) {
 	endX := wp.EndX
 	startX := wp.StartX
 	endY := p.Width
@@ -132,10 +138,9 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 				if r == resume {
 					break
 				} else if r == save {
-					for i := 1; i < endX-startX+1; i++ {
-						for j := startY; j < endY; j++ {
-							channels.outputByte <- newWorld[i][j]
-						}
+					err := encoder.Encode(worldPackage{wp.Index, newWorld})
+					if err != nil {
+						fmt.Println("err", err)
 					}
 				} else if r == quit {
 					return
@@ -243,10 +248,9 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 
 	}
 
-	for i := 1; i < endX-startX+1; i++ {
-		for j := startY; j < endY; j++ {
-			channels.outputByte <- newWorld[i][j]
-		}
+	err := encoder.Encode(worldPackage{wp.Index, newWorld})
+	if err != nil {
+		fmt.Println("err", err)
 	}
 
 	// Done
@@ -255,9 +259,6 @@ func worker(p initPackage, channels workerChannel, wp workerPackage) {
 }
 
 func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
-	height := endX - startX + 1
-
-	workerChannels[i].outputByte = make(chan byte, height*imageWidth)
 	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
 	workerChannels[i].distributorInput = make(chan int, 1)
@@ -308,9 +309,6 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)
 	}
 
-	//workerChannel[0].outputHalo[0] = workerChannel[p.Workers-1].inputHalo[1]
-	//workerChannel[p.Workers - 1].outputHalo[1] = workerChannel[0].inputHalo[0]
-
 	// Connect to external halo sockets
 	go receiveFromClient(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
 	go receiveFromClient(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
@@ -329,11 +327,12 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	}
 	fmt.Println("workers", p.Workers)
 	for i := 0; i < p.Workers; i++ {
-		go worker(p, workerChannel[i], workerPackages[i])
+		go worker(p, workerChannel[i], workerPackages[i], encoder)
 	}
 
 	fmt.Println("All workers active")
 	<-workerChannel[0].distributorOutput
+	time.Sleep(time.Second)
 	fmt.Println("Done")
 }
 
@@ -414,7 +413,7 @@ func main() {
 
 			distributor(enc, dec)
 
-			conn.Close()
+			//conn.Close()
 		}
 	}
 }

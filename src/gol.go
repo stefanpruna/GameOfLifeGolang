@@ -10,8 +10,7 @@ import (
 )
 
 type workerChannel struct {
-	inputByte,
-	outputByte chan byte
+	outputWorld       chan [][]byte
 	distributorInput  chan int
 	distributorOutput chan int
 }
@@ -49,16 +48,14 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 // initialise worker channels
 func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int, p golParams) {
 	for i := 0; i < threadsSmall; i++ {
-		workerChannels[i].inputByte = make(chan byte, threadsSmallHeight+2)
-		workerChannels[i].outputByte = make(chan byte, threadsSmallHeight*p.imageWidth)
+		workerChannels[i].outputWorld = make(chan [][]byte, 1)
 
 		workerChannels[i].distributorInput = make(chan int, 1)
 		workerChannels[i].distributorOutput = make(chan int, 1)
 	}
 
 	for i := 0; i < threadsLarge; i++ {
-		workerChannels[i+threadsSmall].inputByte = make(chan byte, threadsLargeHeight+2)
-		workerChannels[i+threadsSmall].outputByte = make(chan byte, threadsLargeHeight*p.imageWidth)
+		workerChannels[i+threadsSmall].outputWorld = make(chan [][]byte, 1)
 
 		workerChannels[i+threadsSmall].distributorInput = make(chan int, 1)
 		workerChannels[i+threadsSmall].distributorOutput = make(chan int, 1)
@@ -159,18 +156,20 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 					}
 					// Get the world and save it
 					for t := 0; t < threadsSmall; t++ {
+						tw := <-workerChannels[t].outputWorld
 						startX := threadsSmallHeight * t
 						for x := 0; x < threadsSmallHeight; x++ {
 							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = <-workerChannels[t].outputByte
+								world[x+startX][y] = tw[x][y]
 							}
 						}
 					}
 					for t := 0; t < threadsLarge; t++ {
+						tw := <-workerChannels[t+threadsSmall].outputWorld
 						startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
 						for x := 0; x < threadsLargeHeight; x++ {
 							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
+								world[x+startX][y] = tw[x][y]
 							}
 						}
 					}
@@ -198,18 +197,20 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 			}
 			// Get the world and save it
 			for t := 0; t < threadsSmall; t++ {
+				tw := <-workerChannels[t].outputWorld
 				startX := threadsSmallHeight * t
 				for x := 0; x < threadsSmallHeight; x++ {
 					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = <-workerChannels[t].outputByte
+						world[x+startX][y] = tw[x][y]
 					}
 				}
 			}
 			for t := 0; t < threadsLarge; t++ {
+				tw := <-workerChannels[t+threadsSmall].outputWorld
 				startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
 				for x := 0; x < threadsLargeHeight; x++ {
 					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
+						world[x+startX][y] = tw[x][y]
 					}
 				}
 			}
@@ -229,9 +230,31 @@ type workerPackage struct {
 	StartX int
 	EndX   int
 	World  [][]byte
+	Index  int
 }
 
-func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
+type worldPackage struct {
+	Index       int
+	OutputWorld [][]byte
+}
+
+func listenToWorker(decoder *gob.Decoder, channel []workerChannel) {
+	for {
+		var p worldPackage
+		err := decoder.Decode(&p)
+		channel[p.Index].outputWorld <- p.OutputWorld
+
+		channel[p.Index].distributorOutput <- -1
+
+		fmt.Println("Received world from worker in")
+
+		if err != nil {
+			fmt.Println("Err", err)
+		}
+	}
+}
+
+func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage, workerChannels []workerChannel) {
 	encoder := gob.NewEncoder(conn)
 
 	// The next packet is an init package
@@ -250,7 +273,10 @@ func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage) {
 	if err != nil {
 		fmt.Println("Err", err)
 	}
-	fmt.Println("done")
+
+	decoder := gob.NewDecoder(conn)
+	fmt.Println("go listenToWorker")
+	listenToWorker(decoder, workerChannels)
 
 }
 
@@ -319,55 +345,41 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		workerBounds[t] = workerPackage{
 			threadsSmallHeight * i,
 			threadsSmallHeight * (i + 1),
-			borderedWorld[(threadsSmallHeight)*i : (threadsSmallHeight)*(i+1)+2]}
+			borderedWorld[(threadsSmallHeight)*i : (threadsSmallHeight)*(i+1)+2],
+			t,
+		}
 		t++
 	}
 	for i := 0; i < threadsLarge; i++ {
 		workerBounds[t] = workerPackage{
 			threadsSmallHeight*threadsSmall + threadsLargeHeight*i,
 			threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1),
-			borderedWorld[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)+2]}
+			borderedWorld[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)+2],
+			t,
+		}
 		t++
 	}
-
+	fmt.Println("aaa")
 	t = 0
 	// Start workers on remote machines
 	for i := 0; i < clientNumber; i++ {
 		host0, _, _ := net.SplitHostPort(clients[positiveModulo(i-1, clientNumber)].RemoteAddr().String())
 		host1, _, _ := net.SplitHostPort(clients[positiveModulo(i+1, clientNumber)].RemoteAddr().String())
 		if i < clientSmall {
-			startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth}, workerBounds[t:t+clientSmallWorkers])
+			go startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
+				workerBounds[t:t+clientSmallWorkers], workerChannels)
 			t += clientSmallWorkers
 		} else {
-			startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth}, workerBounds[t:t+clientLargeWorkers])
+			go startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
+				workerBounds[t:t+clientLargeWorkers], workerChannels)
 			t += clientLargeWorkers
 		}
 	}
 
-	// send data to workers
-	for t := 0; t < threadsSmall; t++ {
-		startX := threadsSmallHeight * t
-		endX := threadsSmallHeight * (t + 1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][j]
-			}
-		}
-	}
-	for t := 0; t < threadsLarge; t++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][j]
-			}
-		}
-	}
-
+	fmt.Println("before controller")
 	// main worker controller function
-	//workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
+	workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
+	fmt.Println("WorkerController ended")
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
