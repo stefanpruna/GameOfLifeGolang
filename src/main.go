@@ -104,7 +104,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 func listenForClients(clientNumber int, clients []net.Conn) {
 
-	ln, err := net.Listen("tcp4", "0.0.0.0:37734")
+	ln, err := net.Listen("tcp4", "0.0.0.0:4000")
 	if err != nil {
 		// handle error
 	}
