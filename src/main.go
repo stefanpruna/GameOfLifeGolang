@@ -104,7 +104,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 func listenForClients(clientNumber int, clients []net.Conn) {
 
-	ln, err := net.Listen("tcp", ":4000")
+	ln, err := net.Listen("tcp", ":44000")
 	if err != nil {
 		// handle error
 	}
@@ -141,18 +141,18 @@ func main() {
 	flag.IntVar(
 		&params.imageWidth,
 		"w",
-		5120,
+		512,
 		"Specify the width of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.imageHeight,
 		"h",
-		5120,
+		512,
 		"Specify the height of the image. Defaults to 512.")
 
 	flag.Parse()
 
-	params.turns = 10
+	params.turns = 100
 
 	listenForClients(clientNumber, clients)
 
