@@ -141,13 +141,13 @@ func main() {
 	flag.IntVar(
 		&params.imageWidth,
 		"w",
-		512,
+		5120,
 		"Specify the width of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.imageHeight,
 		"h",
-		512,
+		5120,
 		"Specify the height of the image. Defaults to 512.")
 
 	flag.Parse()
