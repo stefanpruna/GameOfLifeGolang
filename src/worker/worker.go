@@ -355,7 +355,7 @@ func serveToClient(conn net.Conn, c chan byte, width int) {
 }
 
 func waitForClients(clients []net.Conn, done chan byte) {
-	ln, err := net.Listen("tcp4", ":4001")
+	ln, err := net.Listen("tcp4", ":37534")
 	if err != nil {
 		// handle error
 	}
@@ -370,7 +370,7 @@ func waitForClients(clients []net.Conn, done chan byte) {
 }
 
 func receiveFromClient(ip string, c chan byte, width int) {
-	conn, _ := net.Dial("tcp4", ip+":4001")
+	conn, _ := net.Dial("tcp4", ip+":37534")
 	dec := gob.NewDecoder(conn)
 	for {
 		var haloData = make([]byte, width)
@@ -390,7 +390,7 @@ func receiveFromClient(ip string, c chan byte, width int) {
 }
 
 func main() {
-	conn, _ := net.Dial("tcp4", hostname+"4000")
+	conn, _ := net.Dial("tcp4", hostname+"37734")
 	fmt.Println("Dialed")
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
