@@ -140,18 +140,18 @@ func main() {
 	flag.IntVar(
 		&params.imageWidth,
 		"w",
-		128,
+		512,
 		"Specify the width of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.imageHeight,
 		"h",
-		128,
+		512,
 		"Specify the height of the image. Defaults to 512.")
 
 	flag.Parse()
 
-	params.turns = 1500
+	params.turns = 500
 
 	listenForClients(clientNumber, clients)
 
