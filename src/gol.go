@@ -206,7 +206,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				}
 			}
 		case o := <-workerData[0].distributorOutput:
-			fmt.Println("received quit signal!!!!!")
+			fmt.Println("received quit signal")
 			if o != -1 {
 				fmt.Println("Something has gone wrong, o =", o)
 			}
@@ -258,8 +258,8 @@ type distributorPackage struct {
 	OutputWorld [][]byte
 }
 
-func listenToWorker(decoder *gob.Decoder, channel []workerData) {
-	for {
+func listenToWorker(decoder *gob.Decoder, channel []workerData, workersServed int) {
+	for i := 0; i < workersServed; {
 		var p distributorPackage
 		err := decoder.Decode(&p)
 		if err != nil {
@@ -269,12 +269,21 @@ func listenToWorker(decoder *gob.Decoder, channel []workerData) {
 		if p.Type == 1 {
 			channel[p.Index].outputWorld <- p.OutputWorld
 			fmt.Println("Received world from worker")
-		} else {
+		} else if p.Type == 0 {
 			channel[p.Index].distributorOutput <- p.Data
 			fmt.Println("Received data from worker")
+		} else if p.Type == -1 {
+			channel[p.Index].distributorOutput <- p.Data
+			fmt.Println("Received data from worker")
+			i++
 		}
 	}
+	fmt.Println("exited listenToWorker")
 }
+
+const (
+	INIT = 0
+)
 
 func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackage, workerData []workerData) {
 	// The next packet is an init package
@@ -285,12 +294,17 @@ func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackag
 
 	// Send the init package
 	err = client.encoder.Encode(initP)
-
+	if err != nil {
+		fmt.Println("Err", err)
+	}
 	// Send worker packages
 	for i, p := range workerP {
 		workerData[i].encoder = client.encoder
 		workerData[i].index = i
-		_ = client.encoder.Encode(p)
+		err = client.encoder.Encode(p)
+		if err != nil {
+			fmt.Println("Err", err)
+		}
 	}
 
 	if err != nil {
@@ -299,7 +313,7 @@ func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackag
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
+func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune, clients []net.Conn, clientNumber int) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -392,12 +406,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		host1, _, _ := net.SplitHostPort(clients[positiveModulo(i+1, clientNumber)].RemoteAddr().String())
 		if i < clientSmall {
 			fmt.Println(clientSmallWorkers, "workers started on client", i)
-			go startWorkers(clientsGOB[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clientsGOB[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientSmallWorkers
 		} else {
 			fmt.Println(clientLargeWorkers, "workers started on client", i)
-			go startWorkers(clientsGOB[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clientsGOB[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientLargeWorkers
 		}
@@ -414,8 +428,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		if p != 1 {
 			fmt.Println("Ready package mismatch")
 		}
-
-		go listenToWorker(clientsGOB[i].decoder, workerData)
 	}
 	for i := 0; i < clientNumber; i++ {
 		p := 1
@@ -423,6 +435,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 		if err != nil {
 			fmt.Println(err)
+		}
+
+		if i < clientSmall {
+			go listenToWorker(clientsGOB[i].decoder, workerData, clientSmallWorkers)
+		} else {
+			go listenToWorker(clientsGOB[i].decoder, workerData, clientLargeWorkers)
 		}
 	}
 
@@ -442,6 +460,17 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
+	// Tell workers to exit listening functions
+	for i := 0; i < clientNumber; i++ {
+		err := clientsGOB[i].encoder.Encode(controllerData{
+			Index: -1,
+			Data:  0,
+		})
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
 	outputWorld(p, p.turns, d, world)
 
 	// Make sure that the Io has finished any output before exiting.
@@ -449,4 +478,5 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	<-d.io.idle
 	// Return the coordinates of cells that are still alive.
 	alive <- finalAlive
+
 }

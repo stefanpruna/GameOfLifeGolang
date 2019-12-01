@@ -69,7 +69,7 @@ type ioChans struct {
 // It makes some channels and starts relevant goroutines.
 // It places the created channels in the relevant structs.
 // It returns an array of alive cells returned by the distributor.
-func gameOfLife(p golParams, keyChan <-chan rune) []cell {
+func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []net.Conn) []cell {
 	var dChans distributorChans
 	var ioChans ioChans
 
@@ -95,7 +95,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 	aliveCells := make(chan []cell)
 
-	go distributor(p, dChans, aliveCells, keyChan)
+	go distributor(p, dChans, aliveCells, keyChan, clients, clientNumber)
 	go pgmIo(p, ioChans)
 
 	alive := <-aliveCells
@@ -106,7 +106,7 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 
 	ln, err := net.Listen("tcp4", ":4000")
 	if err != nil {
-		// handle error
+		fmt.Println("Could not listen to port 4000", err)
 	}
 
 	if ln != nil {
@@ -115,19 +115,13 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 			if err != nil {
 				fmt.Println(err)
 			}
-			fmt.Println("Accepted client number", i)
+			fmt.Println("Client number", i, "/", clientNumber, "connected")
 			clients[i] = conn
 		}
 	}
 }
 
-const clientNumber = 4
-
-var clients = make([]net.Conn, clientNumber)
-
-const (
-	INIT = 0
-)
+const clientNumber = 1
 
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
@@ -137,7 +131,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		64,
+		16,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
@@ -154,13 +148,16 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 1000
+	params.turns = 100
 
+	var clients = make([]net.Conn, clientNumber)
+	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	listenForClients(clientNumber, clients)
 
 	startControlServer(params)
 	keyChan := make(chan rune)
 	go getKeyboardCommand(keyChan)
-	gameOfLife(params, keyChan)
+
+	gameOfLife(params, keyChan, clientNumber, clients)
 	StopControlServer()
 }
