@@ -13,6 +13,7 @@ type workerData struct {
 	outputWorld       chan [][]byte
 	distributorOutput chan int
 	encoder           *gob.Encoder
+	index             int
 }
 
 const (
@@ -64,17 +65,23 @@ type controllerData struct {
 	Index, Data int
 }
 
-func encodeData(encoder *gob.Encoder, workerIndex, data int) {
-	err := encoder.Encode(controllerData{workerIndex, data})
+func encodeData(worker workerData, data int) {
+	p := controllerData{worker.index, data}
+	err := worker.encoder.Encode(&p)
 	if err != nil {
 		fmt.Println(err)
 	}
 }
 
+type clientEncDec struct {
+	encoder *gob.Encoder
+	decoder *gob.Decoder
+}
+
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
-	timer := time.NewTimer(2 * time.Second)
+	timer := time.NewTimer(1111 * time.Second)
 	for q := false; q != true; {
 		select {
 		case <-timer.C:
@@ -83,7 +90,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 
 			if !paused {
 				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i].encoder, i, pause)
+					encodeData(workerData[i], pause)
 				}
 				for i := 0; i < p.threads; i++ {
 					t := <-workerData[i].distributorOutput
@@ -93,7 +100,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				}
 				// Tell all workers to stop after turn stopAtTurn
 				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i].encoder, i, stopAtTurn)
+					encodeData(workerData[i], stopAtTurn)
 				}
 				for i := 0; i < p.threads; i++ {
 					r := <-workerData[i].distributorOutput
@@ -102,7 +109,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 					}
 				}
 				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i].encoder, i, ping)
+					encodeData(workerData[i], ping)
 				}
 				for i := 0; i < p.threads; i++ {
 					alive += <-workerData[i].distributorOutput
@@ -117,7 +124,8 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				if !paused {
 					// Get turn from all workers
 					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i].encoder, i, pause)
+						fmt.Println(i)
+						encodeData(workerData[i], pause)
 					}
 					// Compute turn to be stopped after
 					for i := 0; i < p.threads; i++ {
@@ -128,7 +136,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 					}
 					// Tell all workers to stop after turn stopAtTurn
 					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i].encoder, i, stopAtTurn)
+						encodeData(workerData[i], stopAtTurn)
 					}
 					for i := 0; i < p.threads; i++ {
 						r := <-workerData[i].distributorOutput
@@ -143,7 +151,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				} else if k == 'p' { // If this was a pause command and we are already paused, resume
 					// Resume all workers
 					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i].encoder, i, resume)
+						encodeData(workerData[i], resume)
 					}
 					fmt.Println("Continuing.")
 				}
@@ -155,12 +163,12 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 						fmt.Println("Saving and quitting on turn", stopAtTurn)
 					}
 					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i].encoder, i, save)
+						encodeData(workerData[i], save)
 					}
 					// If not saving while already paused
 					if !paused {
 						for i := 0; i < p.threads; i++ {
-							encodeData(workerData[i].encoder, i, resume)
+							encodeData(workerData[i], resume)
 						}
 					}
 					// Get the world and save it
@@ -187,7 +195,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 					// Quit workers
 					if k == 'q' {
 						for i := 0; i < p.threads; i++ {
-							encodeData(workerData[i].encoder, i, quit)
+							encodeData(workerData[i], quit)
 							q = true
 						}
 					}
@@ -268,27 +276,26 @@ func listenToWorker(decoder *gob.Decoder, channel []workerData) {
 	}
 }
 
-func startWorkers(conn net.Conn, initP initPackage, workerP []workerPackage, workerChannels []workerData) {
-	encoder := gob.NewEncoder(conn)
-
+func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackage, workerData []workerData) {
 	// The next packet is an init package
-	_ = encoder.Encode(INIT)
+	err := client.encoder.Encode(INIT)
+	if err != nil {
+		fmt.Println("Err", err)
+	}
 
 	// Send the init package
-	err := encoder.Encode(initP)
+	err = client.encoder.Encode(initP)
 
 	// Send worker packages
 	for i, p := range workerP {
-		workerChannels[i].encoder = encoder
-		_ = encoder.Encode(p)
+		workerData[i].encoder = client.encoder
+		workerData[i].index = i
+		_ = client.encoder.Encode(p)
 	}
 
 	if err != nil {
 		fmt.Println("Err", err)
 	}
-
-	decoder := gob.NewDecoder(conn)
-	go listenToWorker(decoder, workerChannels)
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -330,8 +337,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	threadsSmallHeight := p.imageHeight / p.threads
 
 	// Worker channels
-	workerChannels := make([]workerData, p.threads)
-	initialiseChannels(workerChannels, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
+	workerData := make([]workerData, p.threads)
+	initialiseChannels(workerData, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
 
 	// Threads per client
 	//clientLarge := p.threads % clientNumber
@@ -371,6 +378,13 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		t++
 	}
 	fmt.Println("aaa")
+
+	clientsGOB := make([]clientEncDec, clientNumber)
+	for i := 0; i < clientNumber; i++ {
+		clientsGOB[i].encoder = gob.NewEncoder(clients[i])
+		clientsGOB[i].decoder = gob.NewDecoder(clients[i])
+	}
+
 	t = 0
 	// Start workers on remote machines
 	for i := 0; i < clientNumber; i++ {
@@ -378,20 +392,43 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		host1, _, _ := net.SplitHostPort(clients[positiveModulo(i+1, clientNumber)].RemoteAddr().String())
 		if i < clientSmall {
 			fmt.Println(clientSmallWorkers, "workers started on client", i)
-			go startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
-				workerBounds[t:t+clientSmallWorkers], workerChannels)
+			go startWorkers(clientsGOB[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
+				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientSmallWorkers
 		} else {
 			fmt.Println(clientLargeWorkers, "workers started on client", i)
-			go startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
-				workerBounds[t:t+clientLargeWorkers], workerChannels)
+			go startWorkers(clientsGOB[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
+				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientLargeWorkers
+		}
+	}
+
+	for i := 0; i < clientNumber; i++ {
+		var p int
+		err := clientsGOB[i].decoder.Decode(&p)
+
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		if p != 1 {
+			fmt.Println("Ready package mismatch")
+		}
+
+		go listenToWorker(clientsGOB[i].decoder, workerData)
+	}
+	for i := 0; i < clientNumber; i++ {
+		p := 1
+		err := clientsGOB[i].encoder.Encode(&p)
+
+		if err != nil {
+			fmt.Println(err)
 		}
 	}
 
 	fmt.Println("before controller")
 	// main worker controller function
-	workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
+	workerController(p, world, workerData, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
 	fmt.Println("WorkerController ended")
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.

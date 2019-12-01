@@ -111,7 +111,10 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 
 	if ln != nil {
 		for i := 0; i < clientNumber; i++ {
-			conn, _ := ln.Accept()
+			conn, err := ln.Accept()
+			if err != nil {
+				fmt.Println(err)
+			}
 			fmt.Println("Accepted client number", i)
 			clients[i] = conn
 		}
@@ -123,8 +126,7 @@ const clientNumber = 2
 var clients = make([]net.Conn, clientNumber)
 
 const (
-	INIT     = 0
-	INITDATA = 1
+	INIT = 0
 )
 
 // main is the function called when starting Game of Life with 'make gol'
@@ -135,7 +137,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		64,
+		16,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
@@ -152,7 +154,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 5000
+	params.turns = 1000
 
 	listenForClients(clientNumber, clients)
 

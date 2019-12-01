@@ -334,7 +334,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
 	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
-	workerChannels[i].localDistributor = make(chan byte, 1)
+	workerChannels[i].localDistributor = make(chan byte)
 	workerChannels[i].distributorInput = make(chan int, 1)
 
 	if i == 0 {
@@ -362,10 +362,29 @@ func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel) {
 			fmt.Println("err", err)
 			break
 		}
-
+		fmt.Println("index:", p.Index)
 		channels[p.Index].distributorInput <- p.Data
 
 	}
+}
+
+func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
+	// This client is ready to receive
+	err := encoder.Encode(1)
+	if err != nil {
+		fmt.Println("err", err)
+	}
+
+	var p int
+	err = decoder.Decode(&p)
+	// All clients are ready to receive
+	if err != nil {
+		fmt.Println("err", err)
+	}
+	if p != 1 {
+		fmt.Println("Error from distributor, p =", p)
+	}
+
 }
 
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
@@ -396,12 +415,16 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)
 	}
 
+	waitForOtherClients(encoder, decoder)
+
 	// Connect to external halo sockets
 	go receiveFromClient(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
 	go receiveFromClient(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
-	go receiveFromDistributor(decoder, workerChannel)
 
 	<-done
+
+	go receiveFromDistributor(decoder, workerChannel)
+
 	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
 	ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
 	if ip0 == p.IpBefore && ip1 == p.IpAfter {
@@ -447,7 +470,7 @@ func serveToClient(conn net.Conn, c chan byte, width int) {
 func waitForClients(clients []net.Conn, done chan byte) {
 	ln, err := net.Listen("tcp4", ":4001")
 	if err != nil {
-		// handle error
+		fmt.Println("err", err)
 	}
 
 	if ln != nil {
@@ -460,7 +483,11 @@ func waitForClients(clients []net.Conn, done chan byte) {
 }
 
 func receiveFromClient(ip string, c chan byte, width int) {
-	conn, _ := net.Dial("tcp4", ip+":4001")
+	conn, err := net.Dial("tcp4", ip+":4001")
+	if err != nil {
+		fmt.Println("err", err)
+	}
+
 	dec := gob.NewDecoder(conn)
 	for {
 		var haloData = make([]byte, width)
@@ -505,7 +532,7 @@ func main() {
 		if packetType == INIT {
 
 			distributor(enc, dec)
-
+			break
 			time.Sleep(time.Second)
 			//conn.Close()
 		}
