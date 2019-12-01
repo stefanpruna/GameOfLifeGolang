@@ -104,7 +104,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 func listenForClients(clientNumber int, clients []net.Conn) {
 
-	ln, err := net.Listen("tcp4", "0.0.0.0:4000")
+	ln, err := net.Listen("tcp4", ":4000")
 	if err != nil {
 		// handle error
 	}
@@ -135,7 +135,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		16,
+		64,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
@@ -152,13 +152,9 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 100
+	params.turns = 5000
 
 	listenForClients(clientNumber, clients)
-
-	for _, c := range clients {
-		fmt.Println(c.RemoteAddr().String())
-	}
 
 	startControlServer(params)
 	keyChan := make(chan rune)

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const hostname = "137.222.29.210:"
+const hostname = "192.168.0.8:"
 
 const (
 	INIT     = 0
@@ -37,15 +37,21 @@ type workerPackage struct {
 }
 
 type workerChannel struct {
-	inputHalo         [2]chan byte
-	outputHalo        [2]chan byte
-	distributorInput  chan int
-	distributorOutput chan int
+	inputHalo        [2]chan byte
+	outputHalo       [2]chan byte
+	distributorInput chan int
+	localDistributor chan byte
 }
 
-type worldPackage struct {
+type distributorPackage struct {
 	Index       int
+	Type        int
+	Data        int
 	OutputWorld [][]byte
+}
+
+type controllerData struct {
+	Index, Data int
 }
 
 func positiveModulo(x, m int) int {
@@ -132,13 +138,26 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 		fmt.Println("At turn", turn)
 
 		if turn == stopAtTurn+1 {
-			channels.distributorOutput <- pause
+			err := encoder.Encode(distributorPackage{
+				Index:       wp.Index,
+				Type:        0,
+				Data:        pause,
+				OutputWorld: nil,
+			})
+			if err != nil {
+				fmt.Println("err", err)
+			}
 			for {
 				r := <-channels.distributorInput
 				if r == resume {
 					break
 				} else if r == save {
-					err := encoder.Encode(worldPackage{wp.Index, newWorld})
+					err := encoder.Encode(distributorPackage{
+						Index:       wp.Index,
+						Type:        1,
+						Data:        0,
+						OutputWorld: newWorld[1 : endX-startX+1],
+					})
 					if err != nil {
 						fmt.Println("err", err)
 					}
@@ -153,7 +172,15 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 							}
 						}
 					}
-					channels.distributorOutput <- alive
+					err := encoder.Encode(distributorPackage{
+						Index:       wp.Index,
+						Type:        0,
+						Data:        alive,
+						OutputWorld: nil,
+					})
+					if err != nil {
+						fmt.Println("err", err)
+					}
 					break
 				} else {
 					fmt.Println("Something went wrong, r = ", r)
@@ -172,7 +199,15 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 					}
 					halo0 = true
 				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
+					err := encoder.Encode(distributorPackage{
+						Index:       wp.Index,
+						Type:        0,
+						Data:        turn,
+						OutputWorld: nil,
+					})
+					if err != nil {
+						fmt.Println("err", err)
+					}
 					stopAtTurn = <-channels.distributorInput
 				}
 			}
@@ -185,7 +220,15 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 					}
 					halo1 = true
 				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
+					err := encoder.Encode(distributorPackage{
+						Index:       wp.Index,
+						Type:        0,
+						Data:        turn,
+						OutputWorld: nil,
+					})
+					if err != nil {
+						fmt.Println("err", err)
+					}
 					stopAtTurn = <-channels.distributorInput
 				}
 			}
@@ -221,7 +264,15 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 						}
 						out0 = true
 					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
+						err := encoder.Encode(distributorPackage{
+							Index:       wp.Index,
+							Type:        0,
+							Data:        turn,
+							OutputWorld: nil,
+						})
+						if err != nil {
+							fmt.Println("err", err)
+						}
 						stopAtTurn = <-channels.distributorInput
 					}
 				}
@@ -233,7 +284,15 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 						}
 						out1 = true
 					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
+						err := encoder.Encode(distributorPackage{
+							Index:       wp.Index,
+							Type:        0,
+							Data:        turn,
+							OutputWorld: nil,
+						})
+						if err != nil {
+							fmt.Println("err", err)
+						}
 						stopAtTurn = <-channels.distributorInput
 					}
 				}
@@ -248,21 +307,35 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 
 	}
 
-	err := encoder.Encode(worldPackage{wp.Index, newWorld})
+	err := encoder.Encode(distributorPackage{
+		Index:       wp.Index,
+		Type:        1,
+		Data:        0,
+		OutputWorld: newWorld[1 : endX-startX+1],
+	})
 	if err != nil {
 		fmt.Println("err", err)
 	}
 
 	// Done
-	channels.distributorOutput <- -1
+	err = encoder.Encode(distributorPackage{
+		Index:       wp.Index,
+		Type:        0,
+		Data:        -1,
+		OutputWorld: nil,
+	})
+	if err != nil {
+		fmt.Println("err", err)
+	}
+	channels.localDistributor <- 1
 
 }
 
 func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
 	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
+	workerChannels[i].localDistributor = make(chan byte, 1)
 	workerChannels[i].distributorInput = make(chan int, 1)
-	workerChannels[i].distributorOutput = make(chan int, 1)
 
 	if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
@@ -278,6 +351,21 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 
 	}
 
+}
+
+func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel) {
+	for {
+		var p controllerData
+
+		err := decoder.Decode(&p)
+		if err != nil {
+			fmt.Println("err", err)
+			break
+		}
+
+		channels[p.Index].distributorInput <- p.Data
+
+	}
 }
 
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
@@ -311,6 +399,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	// Connect to external halo sockets
 	go receiveFromClient(p.IpBefore, workerChannel[0].inputHalo[0], p.Width)
 	go receiveFromClient(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width)
+	go receiveFromDistributor(decoder, workerChannel)
 
 	<-done
 	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
@@ -330,8 +419,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	}
 
 	fmt.Println("All workers active")
-	<-workerChannel[0].distributorOutput
-	time.Sleep(time.Second)
+	for i := 0; i < p.Workers; i++ {
+		<-workerChannel[i].localDistributor
+	}
 	fmt.Println("Done")
 }
 
@@ -390,8 +480,13 @@ func receiveFromClient(ip string, c chan byte, width int) {
 }
 
 func main() {
-	conn, _ := net.Dial("tcp4", hostname+"4000")
-	fmt.Println("Dialed")
+	conn, err := net.Dial("tcp4", hostname+"4000")
+	if err != nil {
+		fmt.Println("Server is offline")
+		return
+	}
+	fmt.Println("Connected to server")
+
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
@@ -412,7 +507,7 @@ func main() {
 			distributor(enc, dec)
 
 			time.Sleep(time.Second)
-			conn.Close()
+			//conn.Close()
 		}
 	}
 }
