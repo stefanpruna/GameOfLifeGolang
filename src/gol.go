@@ -81,7 +81,7 @@ type clientEncDec struct {
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
-	timer := time.NewTimer(1111 * time.Second)
+	timer := time.NewTimer(2 * time.Second)
 	for q := false; q != true; {
 		select {
 		case <-timer.C:

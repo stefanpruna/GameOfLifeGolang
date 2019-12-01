@@ -121,7 +121,7 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 	}
 }
 
-const clientNumber = 2
+const clientNumber = 4
 
 var clients = make([]net.Conn, clientNumber)
 
@@ -137,7 +137,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		16,
+		64,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
