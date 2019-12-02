@@ -411,6 +411,22 @@ func Benchmark(b *testing.B) {
 				imageWidth:  512,
 				imageHeight: 512,
 			}},
+
+		{
+			"512x512x32", golParams{
+				turns:       benchLength,
+				threads:     32,
+				imageWidth:  512,
+				imageHeight: 512,
+			}},
+
+		{
+			"5120x5120x32", golParams{
+				turns:       benchLength,
+				threads:     32,
+				imageWidth:  5120,
+				imageHeight: 5120,
+			}},
 	}
 
 	for _, bm := range benchmarks {
