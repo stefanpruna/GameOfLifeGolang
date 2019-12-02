@@ -135,6 +135,9 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	stopAtTurn := -2
 
 	for turn := 0; turn < p.Turns; {
+		if turn%100 == 0 {
+			fmt.Println("At turn", turn)
+		}
 
 		if turn == stopAtTurn+1 {
 			err := encoder.Encode(distributorPackage{
