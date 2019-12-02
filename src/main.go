@@ -7,6 +7,8 @@ import (
 	"net"
 )
 
+const clientNumber = 16
+
 // golParams provides the details of how to run the Game of Life and which image to load.
 type golParams struct {
 	turns       int
@@ -132,8 +134,6 @@ func processClients(clientNumber int) []clientData {
 
 	return clients
 }
-
-const clientNumber = 16
 
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
