@@ -466,6 +466,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 			fmt.Println(err)
 		}
 	}
+	fmt.Println("Just sent controllerdata exit")
 
 	outputWorld(p, p.turns, d, world)
 
