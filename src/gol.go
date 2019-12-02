@@ -81,7 +81,7 @@ type clientData struct {
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
-	timer := time.NewTimer(2 * time.Second)
+	timer := time.NewTimer(1111 * time.Second)
 	for q := false; q != true; {
 		select {
 		case <-timer.C:
@@ -466,7 +466,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 			fmt.Println(err)
 		}
 	}
-	fmt.Println("Just sent controllerdata exit")
 
 	outputWorld(p, p.turns, d, world)
 
