@@ -124,7 +124,6 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				if !paused {
 					// Get turn from all workers
 					for i := 0; i < p.threads; i++ {
-						fmt.Println(i)
 						encodeData(workerData[i], pause)
 					}
 					// Compute turn to be stopped after
