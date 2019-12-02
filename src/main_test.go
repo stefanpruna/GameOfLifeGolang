@@ -5,6 +5,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+	"time"
 )
 
 var clients []clientData
@@ -271,8 +272,11 @@ func Test(t *testing.T) {
 	}
 
 	// Networking
+	start := time.Now()
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients = processClients(clientNumber)
+	difference := time.Since(start)
+	fmt.Println("Spent", difference, "waiting to connect to clients")
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
