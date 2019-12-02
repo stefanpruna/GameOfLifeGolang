@@ -491,6 +491,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	}
 	fmt.Println("Done")
 	if r == 1 {
+		fmt.Println("QUITTTTTTTTTT")
 		return -1 // Quit command
 	}
 	if initP.Clients == 1 {
