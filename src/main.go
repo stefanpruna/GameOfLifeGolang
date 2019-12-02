@@ -160,7 +160,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 1000
+	params.turns = 500
 
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients := processClients(clientNumber)
@@ -169,6 +169,7 @@ func main() {
 	keyChan := make(chan rune)
 	go getKeyboardCommand(keyChan)
 
+	gameOfLife(params, keyChan, clientNumber, clients)
 	gameOfLife(params, keyChan, clientNumber, clients)
 	StopControlServer()
 }
