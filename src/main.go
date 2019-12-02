@@ -133,12 +133,18 @@ func processClients(clientNumber int) []clientData {
 	return clients
 }
 
-const clientNumber = 16
-
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
 func main() {
 	var params golParams
+
+	var clientNumber int
+
+	flag.IntVar(
+		&clientNumber,
+		"clients",
+		16,
+		"Number of clients")
 
 	flag.IntVar(
 		&params.threads,
