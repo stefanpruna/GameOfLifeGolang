@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const hostname = "18.188.197.199:"
+const hostname = "3.133.100.193:"
 
 const (
 	INIT = 0
