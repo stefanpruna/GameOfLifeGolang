@@ -99,7 +99,7 @@ func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []cl
 	if p.threads < clientNumber {
 		p.threads = clientNumber
 	}
-	p.threads = 1
+	//p.threads = 4
 
 	go distributor(p, dChans, aliveCells, keyChan, clients, clientNumber)
 	go pgmIo(p, ioChans)
@@ -161,7 +161,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 500
+	params.turns = 1500
 
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients := processClients(clientNumber)
@@ -171,7 +171,7 @@ func main() {
 	go getKeyboardCommand(keyChan)
 
 	gameOfLife(params, keyChan, clientNumber, clients)
-	gameOfLife(params, keyChan, clientNumber, clients)
+	//gameOfLife(params, keyChan, clientNumber, clients)
 
 	StopControlServer()
 }
