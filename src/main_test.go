@@ -18,6 +18,53 @@ func Test(t *testing.T) {
 		name string
 		args args
 	}{
+		{"16x16x2-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     2,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
+
+		{"16x16x4-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     4,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
+
+		{"16x16x8-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     8,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
 
 		{"16x16x2-1", args{
 			p: golParams{
