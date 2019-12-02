@@ -99,6 +99,7 @@ func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []cl
 	if p.threads < clientNumber {
 		p.threads = clientNumber
 	}
+	p.threads = 16
 
 	go distributor(p, dChans, aliveCells, keyChan, clients, clientNumber)
 	go pgmIo(p, ioChans)
