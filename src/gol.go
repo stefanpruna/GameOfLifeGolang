@@ -206,7 +206,6 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 				}
 			}
 		case o := <-workerData[0].distributorOutput:
-			fmt.Println("received quit signal")
 			if o != -1 {
 				fmt.Println("Something has gone wrong, o =", o)
 			}
@@ -269,17 +268,13 @@ func listenToWorker(decoder *gob.Decoder, channel []workerData, workersServed in
 
 		if p.Type == 1 {
 			channel[p.Index].outputWorld <- p.OutputWorld
-			fmt.Println("Received world from worker")
 		} else if p.Type == 0 {
 			channel[p.Index].distributorOutput <- p.Data
-			fmt.Println("Received data from worker")
 		} else if p.Type == -1 {
 			channel[p.Index].distributorOutput <- p.Data
-			fmt.Println("Received data from worker")
 			i++
 		}
 	}
-	fmt.Println("exited listenToWorker")
 }
 
 const (
@@ -295,7 +290,6 @@ func startWorkers(client clientData, initP initPackage, workerP []workerPackage,
 
 	// Send the init package
 	err = client.encoder.Encode(initP)
-	fmt.Println(initP)
 	if err != nil {
 		fmt.Println("Err", err)
 	}
@@ -393,7 +387,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 		t++
 	}
-	fmt.Println("aaa")
 
 	t = 0
 	// Start workers on remote machines
@@ -401,12 +394,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		host0 := clients[positiveModulo(i-1, clientNumber)].ip
 		host1 := clients[positiveModulo(i+1, clientNumber)].ip
 		if i < clientSmall {
-			fmt.Println(clientSmallWorkers, "workers started on client", i)
+			fmt.Println(clientSmallWorkers, "Workers started on client", i)
 			startWorkers(clients[i], initPackage{clientNumber, clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientSmallWorkers
 		} else {
-			fmt.Println(clientLargeWorkers, "workers started on client", i)
+			fmt.Println(clientLargeWorkers, "Workers started on client", i)
 			startWorkers(clients[i], initPackage{clientNumber, clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientLargeWorkers])
 			t += clientLargeWorkers
@@ -440,10 +433,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
-	fmt.Println("before controller")
 	// main worker controller function
 	workerController(p, world, workerData, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
-	fmt.Println("WorkerController ended")
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell

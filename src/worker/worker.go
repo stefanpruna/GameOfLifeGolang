@@ -134,9 +134,6 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	stopAtTurn := -2
 
 	for turn := 0; turn < p.Turns; {
-		if turn%100 == 0 {
-			fmt.Println("At turn", turn)
-		}
 
 		if turn == stopAtTurn+1 {
 			err := encoder.Encode(distributorPackage{
@@ -376,8 +373,6 @@ func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel, exit
 			fmt.Println("exited receiveFromDistributor")
 			break
 		}
-
-		fmt.Println("index:", p.Index)
 		channels[p.Index].distributorInput <- p.Data
 	}
 	exit <- 1
@@ -387,14 +382,14 @@ func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 	// This client is ready to receive
 	err := encoder.Encode(1)
 	if err != nil {
-		fmt.Println("waitForOtherClients enc err", err)
+		fmt.Println("err", err)
 	}
 
 	var p int
 	err = decoder.Decode(&p)
 	// All clients are ready to receive
 	if err != nil {
-		fmt.Println("waitForOtherClients err", err)
+		fmt.Println("err", err)
 	}
 	if p != 1 {
 		fmt.Println("Error from distributor, p =", p)
@@ -414,7 +409,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	var initP initPackage
 	err := decoder.Decode(&initP)
 	if err != nil {
-		fmt.Println("initPackage err", err)
+		fmt.Println("err", err)
 	}
 
 	if initP.Clients != 1 {
@@ -428,7 +423,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		err = decoder.Decode(&w)
 		//fmt.Println(w)
 		if err != nil {
-			fmt.Println("worker for loop err", err)
+			fmt.Println("err", err)
 			break
 		}
 		//
@@ -469,7 +464,6 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		workerChannel[0].outputHalo[0] = workerChannel[initP.Workers-1].inputHalo[1]
 	}
 
-	fmt.Println("workers", initP.Workers)
 	for i := 0; i < initP.Workers; i++ {
 		go worker(initP, workerChannel[i], workerPackages[i], encoder)
 	}
@@ -506,7 +500,6 @@ func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, 
 		}
 
 		err := enc.Encode(haloPacket{index, haloData})
-		//fmt.Println("Sent halo to socket,", haloData)
 
 		if err != nil {
 			fmt.Println("err", err)
@@ -515,7 +508,6 @@ func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, 
 	}
 
 	exit <- 1
-	fmt.Println("exited serveToClient")
 }
 
 func waitForClients(clients []net.Conn, done chan net.Listener) {
@@ -557,7 +549,6 @@ func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit cha
 	}
 
 	exit <- 1
-	fmt.Println("exited receiveFromClient")
 }
 
 func main() {
@@ -584,7 +575,6 @@ func main() {
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
-	executions := 0
 	for {
 		var packetType int = 0
 		err := dec.Decode(&packetType)
@@ -596,10 +586,9 @@ func main() {
 			fmt.Println("err", err)
 			break
 		}
-		fmt.Println("packet type:", packetType)
 
 		if packetType == INIT {
-			fmt.Println("Starting distributor..")
+			fmt.Println("Starting workers..")
 			result := distributor(enc, dec, exitThread)
 			waitForX := 5
 
@@ -609,9 +598,6 @@ func main() {
 			for i := 0; i < waitForX; i++ {
 				<-exitThread[i]
 			}
-
-			executions++
-			fmt.Println("Ran", executions, "times.")
 
 			if result == -1 { // If quit command, quit worker program
 				return
