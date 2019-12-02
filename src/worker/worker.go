@@ -561,7 +561,7 @@ func main() {
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
-	i := 0
+	executions := 0
 	for {
 		var packetType int = 0
 		err := dec.Decode(&packetType)
@@ -577,7 +577,7 @@ func main() {
 			for i := 0; i < threads; i++ {
 				<-exitThread[i]
 			}
-			fmt.Println("Ran", i, "times.")
+			fmt.Println("Ran", executions, "times.")
 		}
 	}
 }
