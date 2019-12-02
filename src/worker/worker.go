@@ -2,12 +2,11 @@ package main
 
 import (
 	"encoding/gob"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 )
-
-const hostname = "3.133.100.193:"
 
 const (
 	INIT = 0
@@ -562,7 +561,12 @@ func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit cha
 }
 
 func main() {
-	conn, err := net.Dial("tcp4", hostname+"4000")
+	defaultHostname := "3.133.100.193"
+	var hostname string
+
+	flag.StringVar(&hostname, "hostname", defaultHostname, "The hostname of the server.")
+
+	conn, err := net.Dial("tcp4", hostname+":4000")
 	if err != nil {
 		fmt.Println("Server is offline")
 		return
