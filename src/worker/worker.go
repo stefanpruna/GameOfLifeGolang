@@ -565,6 +565,7 @@ func main() {
 	var hostname string
 
 	flag.StringVar(&hostname, "hostname", defaultHostname, "The hostname of the server.")
+	flag.Parse()
 
 	conn, err := net.Dial("tcp4", hostname+":4000")
 	if err != nil {
