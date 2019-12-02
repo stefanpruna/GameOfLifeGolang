@@ -132,7 +132,6 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	halo0 := true
 	halo1 := true
 	stopAtTurn := -2
-	quitBeforeCompletion := false
 
 	for turn := 0; turn < p.Turns; {
 		fmt.Println("At turn", turn)
@@ -162,7 +161,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 						fmt.Println("err", err)
 					}
 				} else if r == quit {
-					quitBeforeCompletion = true
+					channels.localDistributor <- 1
 					return
 				} else if r == ping {
 					alive := 0
@@ -329,11 +328,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 		fmt.Println("err", err)
 	}
 
-	if quitBeforeCompletion {
-		channels.localDistributor <- 1
-	} else {
-		channels.localDistributor <- 0
-	}
+	channels.localDistributor <- 0
 }
 
 func initialiseChannels(workerChannels []workerChannel, workers, clients, imageWidth, endX, startX, i int) {
