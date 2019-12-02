@@ -407,7 +407,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		} else {
 			fmt.Println(clientLargeWorkers, "workers started on client", i)
 			startWorkers(clients[i], initPackage{clientNumber, clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
-				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientSmallWorkers])
+				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientLargeWorkers])
 			t += clientLargeWorkers
 		}
 	}
