@@ -5,7 +5,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
-	"time"
 )
 
 var clients []clientData
@@ -272,11 +271,8 @@ func Test(t *testing.T) {
 	}
 
 	// Networking
-	start := time.Now()
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients = processClients(clientNumber)
-	difference := time.Since(start)
-	fmt.Println("Spent", difference, "waiting to connect to clients")
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -422,14 +418,6 @@ func Benchmark(b *testing.B) {
 				threads:     32,
 				imageWidth:  512,
 				imageHeight: 512,
-			}},
-
-		{
-			"5120x5120x32", golParams{
-				turns:       benchLength,
-				threads:     32,
-				imageWidth:  5120,
-				imageHeight: 5120,
 			}},
 	}
 
