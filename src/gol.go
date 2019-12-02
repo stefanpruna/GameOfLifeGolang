@@ -287,7 +287,6 @@ const (
 )
 
 func startWorkers(client clientData, initP initPackage, workerP []workerPackage, workerData []workerData) {
-	fmt.Println("Length::::", len(workerData))
 	// The next packet is an init package
 	err := client.encoder.Encode(INIT)
 	if err != nil {
@@ -296,6 +295,7 @@ func startWorkers(client clientData, initP initPackage, workerP []workerPackage,
 
 	// Send the init package
 	err = client.encoder.Encode(initP)
+	fmt.Println(initP)
 	if err != nil {
 		fmt.Println("Err", err)
 	}
