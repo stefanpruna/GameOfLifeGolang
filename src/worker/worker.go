@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
+	"time"
 )
 
 const hostname = "18.188.197.199:"
@@ -563,6 +564,7 @@ func main() {
 		if packetType == INIT {
 			fmt.Println("Starting distributor..")
 			distributor(enc, dec)
+			time.Sleep(2 * time.Second)
 			i++
 			fmt.Println("Ran", i, "times.")
 		}
