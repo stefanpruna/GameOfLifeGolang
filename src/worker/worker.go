@@ -376,8 +376,8 @@ func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel, exit
 
 		fmt.Println("index:", p.Index)
 		channels[p.Index].distributorInput <- p.Data
-
 	}
+	exit <- 1
 }
 
 func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
@@ -498,6 +498,7 @@ func serveToClient(conn net.Conn, c chan byte, width int, turns int, exit chan b
 		}
 	}
 
+	exit <- 1
 	fmt.Println("exited serveToClient")
 }
 
@@ -539,6 +540,7 @@ func receiveFromClient(ip string, c chan byte, width int, turns int, exit chan b
 		}
 	}
 
+	exit <- 1
 	fmt.Println("exited receiveFromClient")
 }
 
