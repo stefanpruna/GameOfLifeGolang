@@ -295,7 +295,7 @@ func Benchmark(b *testing.B) {
 		name string
 		p    golParams
 	}{
-		{
+		/*{
 			"16x16x2", golParams{
 				turns:       benchLength,
 				threads:     2,
@@ -415,6 +415,15 @@ func Benchmark(b *testing.B) {
 				imageHeight: 512,
 			}},
 
+		*/
+		{
+			"512x512x16", golParams{
+				turns:       benchLength,
+				threads:     16,
+				imageWidth:  512,
+				imageHeight: 512,
+			}},
+
 		{
 			"512x512x32", golParams{
 				turns:       benchLength,
@@ -429,6 +438,30 @@ func Benchmark(b *testing.B) {
 				threads:     64,
 				imageWidth:  512,
 				imageHeight: 512,
+			}},
+
+		{
+			"5120x5120x16", golParams{
+				turns:       100,
+				threads:     16,
+				imageWidth:  5120,
+				imageHeight: 5120,
+			}},
+
+		{
+			"5120x5120x32", golParams{
+				turns:       100,
+				threads:     32,
+				imageWidth:  5120,
+				imageHeight: 5120,
+			}},
+
+		{
+			"5120x5120x64", golParams{
+				turns:       100,
+				threads:     64,
+				imageWidth:  5120,
+				imageHeight: 5120,
 			}},
 	}
 
