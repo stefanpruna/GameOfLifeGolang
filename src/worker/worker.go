@@ -6,11 +6,10 @@ import (
 	"net"
 )
 
-const hostname = "137.222.29.178:"
+const hostname = "127.0.0.1:"
 
 const (
-	INIT     = 0
-	INITDATA = 1
+	INIT = 0
 )
 
 const (
@@ -22,6 +21,7 @@ const (
 )
 
 type initPackage struct {
+	Clients           int
 	Workers           int
 	IpBefore, IpAfter string
 	Turns             int
@@ -336,9 +336,6 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 	workerChannels[i].localDistributor = make(chan byte)
 	workerChannels[i].distributorInput = make(chan int, 1)
 
-	//workerChannels[positiveModulo(i-1, workers)].outputHalo[1] = workerChannels[i].inputHalo[0]
-	//workerChannels[positiveModulo(i+1, workers)].outputHalo[0] = workerChannels[i].inputHalo[1]
-
 	if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
 		workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
@@ -398,18 +395,20 @@ func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	var haloClients = make([]net.Conn, 2)
 	var done = make(chan net.Listener)
-	go waitForClients(haloClients, done)
 
-	var p initPackage
-	err := decoder.Decode(&p)
-
+	var initP initPackage
+	err := decoder.Decode(&initP)
 	if err != nil {
 		fmt.Println("initPackage err", err)
 	}
 
-	workerChannel := make([]workerChannel, p.Workers)
-	workerPackages := make([]workerPackage, p.Workers)
-	for i := 0; i < p.Workers; i++ {
+	if initP.Clients != 1 {
+		go waitForClients(haloClients, done)
+	}
+
+	workerChannel := make([]workerChannel, initP.Workers)
+	workerPackages := make([]workerPackage, initP.Workers)
+	for i := 0; i < initP.Workers; i++ {
 		var w workerPackage
 		err = decoder.Decode(&w)
 		//fmt.Println(w)
@@ -421,43 +420,55 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		//fmt.Println("Received worker package,", w.StartX, w.EndX)
 
 		workerPackages[i] = w
-		initialiseChannels(workerChannel, p.Workers, p.Width, w.EndX, w.StartX, i)
+		initialiseChannels(workerChannel, initP.Workers, initP.Width, w.EndX, w.StartX, i)
 	}
 
 	waitForOtherClients(encoder, decoder)
 
+	var ln net.Listener
 	// Connect to external halo sockets
-	go receiveFromClient(p.IpBefore, workerChannel[0].inputHalo[0], p.Width, p.Turns)
-	go receiveFromClient(p.IpAfter, workerChannel[p.Workers-1].inputHalo[1], p.Width, p.Turns)
+	if initP.Clients != 1 {
+		go receiveFromClient(initP.IpBefore, workerChannel[0].inputHalo[0], initP.Width, initP.Turns)
+		go receiveFromClient(initP.IpAfter, workerChannel[initP.Workers-1].inputHalo[1], initP.Width, initP.Turns)
 
-	ln := <-done
+		ln = <-done
+	}
 
 	go receiveFromDistributor(decoder, workerChannel)
 
-	ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
-	ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
-	if ip0 == p.IpBefore && ip1 == p.IpAfter {
-		go serveToClient(haloClients[0], workerChannel[0].outputHalo[0], p.Width, p.Turns)
-		go serveToClient(haloClients[1], workerChannel[p.Workers-1].outputHalo[1], p.Width, p.Turns)
-	} else if ip0 == p.IpAfter && ip1 == p.IpBefore {
-		go serveToClient(haloClients[1], workerChannel[0].outputHalo[0], p.Width, p.Turns)
-		go serveToClient(haloClients[0], workerChannel[p.Workers-1].outputHalo[1], p.Width, p.Turns)
+	if initP.Clients != 1 {
+		ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
+		ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
+		if ip0 == initP.IpBefore && ip1 == initP.IpAfter {
+			go serveToClient(haloClients[0], workerChannel[0].outputHalo[0], initP.Width, initP.Turns)
+			go serveToClient(haloClients[1], workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns)
+		} else if ip0 == initP.IpAfter && ip1 == initP.IpBefore {
+			go serveToClient(haloClients[1], workerChannel[0].outputHalo[0], initP.Width, initP.Turns)
+			go serveToClient(haloClients[0], workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns)
+		} else {
+			fmt.Println("IPs are mismatched")
+		}
 	} else {
-		fmt.Println("IPs are mismatched")
+		// Only local workers
+		workerChannel[initP.Workers-1].outputHalo[1] = workerChannel[0].inputHalo[0]
+		workerChannel[0].outputHalo[0] = workerChannel[initP.Workers-1].inputHalo[1]
 	}
-	fmt.Println("workers", p.Workers)
-	for i := 0; i < p.Workers; i++ {
-		go worker(p, workerChannel[i], workerPackages[i], encoder)
+
+	fmt.Println("workers", initP.Workers)
+	for i := 0; i < initP.Workers; i++ {
+		go worker(initP, workerChannel[i], workerPackages[i], encoder)
 	}
 
 	fmt.Println("All workers active")
-	for i := 0; i < p.Workers; i++ {
+	for i := 0; i < initP.Workers; i++ {
 		<-workerChannel[i].localDistributor
 	}
 
-	err = ln.Close()
-	if err != nil {
-		fmt.Println(err)
+	if initP.Clients != 1 {
+		err = ln.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 	fmt.Println("Done")
 }

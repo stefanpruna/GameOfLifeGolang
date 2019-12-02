@@ -238,6 +238,7 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 }
 
 type initPackage struct {
+	Clients           int
 	Workers           int
 	IpBefore, IpAfter string
 	Turns             int
@@ -400,12 +401,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		host1 := clients[positiveModulo(i+1, clientNumber)].ip
 		if i < clientSmall {
 			fmt.Println(clientSmallWorkers, "workers started on client", i)
-			startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clients[i], initPackage{clientNumber, clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientSmallWorkers
 		} else {
 			fmt.Println(clientLargeWorkers, "workers started on client", i)
-			startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clients[i], initPackage{clientNumber, clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientLargeWorkers
 		}
