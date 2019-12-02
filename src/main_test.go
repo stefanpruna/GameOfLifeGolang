@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+var clients []clientData
+
 func Test(t *testing.T) {
 	type args struct {
 		p             golParams
@@ -270,7 +272,7 @@ func Test(t *testing.T) {
 
 	// Networking
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
-	clients := processClients(clientNumber)
+	clients = processClients(clientNumber)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -410,10 +412,6 @@ func Benchmark(b *testing.B) {
 				imageHeight: 512,
 			}},
 	}
-
-	// Networking
-	fmt.Println("Waiting for", clientNumber, "clients to connect.")
-	clients := processClients(clientNumber)
 
 	for _, bm := range benchmarks {
 		os.Stdout = nil // Disable all program output apart from benchmark results
