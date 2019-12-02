@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const hostname = "18.188.197.199:"
+const hostname = "127.0.0.1:"
 
 const (
 	INIT = 0
@@ -331,16 +331,19 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 
 }
 
-func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, endX, startX, i int) {
+func initialiseChannels(workerChannels []workerChannel, workers, clients, imageWidth, endX, startX, i int) {
 	workerChannels[i].inputHalo[0] = make(chan byte, imageWidth)
 	workerChannels[i].inputHalo[1] = make(chan byte, imageWidth)
 	workerChannels[i].localDistributor = make(chan byte)
 	workerChannels[i].distributorInput = make(chan int, 1)
 
-	if len(workerChannels) == 1 {
-		// Just one worker on this client
+	if workers == 1 && clients > 1 {
+		// Just one client
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
 		workerChannels[0].outputHalo[1] = make(chan byte, imageWidth)
+	} else if workers == 1 {
+		workerChannels[0].outputHalo[0] = workerChannels[0].inputHalo[1]
+		workerChannels[0].outputHalo[1] = workerChannels[0].inputHalo[0]
 	} else if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
 		workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
@@ -425,7 +428,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		//fmt.Println("Received worker package,", w.StartX, w.EndX)
 
 		workerPackages[i] = w
-		initialiseChannels(workerChannel, initP.Workers, initP.Width, w.EndX, w.StartX, i)
+		initialiseChannels(workerChannel, initP.Workers, initP.Clients, initP.Width, w.EndX, w.StartX, i)
 	}
 
 	waitForOtherClients(encoder, decoder)
