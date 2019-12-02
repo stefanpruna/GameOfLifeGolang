@@ -336,7 +336,11 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 	workerChannels[i].localDistributor = make(chan byte)
 	workerChannels[i].distributorInput = make(chan int, 1)
 
-	if i == 0 {
+	if len(workerChannels) == 1 {
+		// Just one worker on this client
+		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
+		workerChannels[0].outputHalo[1] = make(chan byte, imageWidth)
+	} else if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
 		workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
 	} else {
