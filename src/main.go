@@ -160,7 +160,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 1500
+	params.turns = 500
 
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients := processClients(clientNumber)

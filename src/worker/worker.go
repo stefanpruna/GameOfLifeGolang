@@ -399,7 +399,7 @@ func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 
 }
 
-func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan byte) {
+func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan byte) int {
 	var haloClients = make([]net.Conn, 2)
 	var done = make(chan net.Listener)
 
@@ -435,13 +435,13 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	var ln net.Listener
 	// Connect to external halo sockets
 	if initP.Clients != 1 {
-		go receiveFromClient(initP.IpBefore, workerChannel[0].inputHalo[0], initP.Width, initP.Turns, exitThread[0])
-		go receiveFromClient(initP.IpAfter, workerChannel[initP.Workers-1].inputHalo[1], initP.Width, initP.Turns, exitThread[1])
+		go receiveFromClient(initP.IpBefore, workerChannel[0].inputHalo[0], initP.Width, initP.Turns, exitThread[1])
+		go receiveFromClient(initP.IpAfter, workerChannel[initP.Workers-1].inputHalo[1], initP.Width, initP.Turns, exitThread[2])
 
 		ln = <-done
 	}
 
-	go receiveFromDistributor(decoder, workerChannel, exitThread[2])
+	go receiveFromDistributor(decoder, workerChannel, exitThread[0])
 
 	if initP.Clients != 1 {
 		ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
@@ -478,6 +478,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		}
 	}
 	fmt.Println("Done")
+	return initP.Clients
 }
 
 func serveToClient(conn net.Conn, c chan byte, width int, turns int, exit chan byte) {
@@ -572,8 +573,8 @@ func main() {
 
 		if packetType == INIT {
 			fmt.Println("Starting distributor..")
-			distributor(enc, dec, exitThread)
-			for i := 0; i < 5; i++ {
+			threads := distributor(enc, dec, exitThread)
+			for i := 0; i < threads; i++ {
 				<-exitThread[i]
 			}
 			fmt.Println("Ran", i, "times.")
