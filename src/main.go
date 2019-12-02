@@ -133,7 +133,7 @@ func processClients(clientNumber int) []clientData {
 	return clients
 }
 
-const clientNumber = 1
+const clientNumber = 3
 
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
