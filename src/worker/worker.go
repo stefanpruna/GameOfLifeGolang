@@ -577,6 +577,8 @@ func main() {
 			for i := 0; i < threads; i++ {
 				<-exitThread[i]
 			}
+
+			executions++
 			fmt.Println("Ran", executions, "times.")
 		}
 	}
