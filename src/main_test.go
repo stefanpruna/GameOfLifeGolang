@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
-	"net"
 	"os"
 	"testing"
 )
@@ -270,9 +269,8 @@ func Test(t *testing.T) {
 	}
 
 	// Networking
-	var clients = make([]net.Conn, clientNumber)
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
-	listenForClients(clientNumber, clients)
+	clients := processClients(clientNumber)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -414,9 +412,8 @@ func Benchmark(b *testing.B) {
 	}
 
 	// Networking
-	var clients = make([]net.Conn, clientNumber)
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
-	listenForClients(clientNumber, clients)
+	clients := processClients(clientNumber)
 
 	for _, bm := range benchmarks {
 		os.Stdout = nil // Disable all program output apart from benchmark results

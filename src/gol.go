@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -73,9 +72,10 @@ func encodeData(worker workerData, data int) {
 	}
 }
 
-type clientEncDec struct {
+type clientData struct {
 	encoder *gob.Encoder
 	decoder *gob.Decoder
+	ip      string
 }
 
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
@@ -285,7 +285,7 @@ const (
 	INIT = 0
 )
 
-func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackage, workerData []workerData) {
+func startWorkers(client clientData, initP initPackage, workerP []workerPackage, workerData []workerData) {
 	// The next packet is an init package
 	err := client.encoder.Encode(INIT)
 	if err != nil {
@@ -313,7 +313,7 @@ func startWorkers(client clientEncDec, initP initPackage, workerP []workerPackag
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune, clients []net.Conn, clientNumber int) {
+func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune, clients []clientData, clientNumber int) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -393,25 +393,19 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	}
 	fmt.Println("aaa")
 
-	clientsGOB := make([]clientEncDec, clientNumber)
-	for i := 0; i < clientNumber; i++ {
-		clientsGOB[i].encoder = gob.NewEncoder(clients[i])
-		clientsGOB[i].decoder = gob.NewDecoder(clients[i])
-	}
-
 	t = 0
 	// Start workers on remote machines
 	for i := 0; i < clientNumber; i++ {
-		host0, _, _ := net.SplitHostPort(clients[positiveModulo(i-1, clientNumber)].RemoteAddr().String())
-		host1, _, _ := net.SplitHostPort(clients[positiveModulo(i+1, clientNumber)].RemoteAddr().String())
+		host0 := clients[positiveModulo(i-1, clientNumber)].ip
+		host1 := clients[positiveModulo(i+1, clientNumber)].ip
 		if i < clientSmall {
 			fmt.Println(clientSmallWorkers, "workers started on client", i)
-			startWorkers(clientsGOB[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clients[i], initPackage{clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientSmallWorkers
 		} else {
 			fmt.Println(clientLargeWorkers, "workers started on client", i)
-			startWorkers(clientsGOB[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
+			startWorkers(clients[i], initPackage{clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
 				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientSmallWorkers])
 			t += clientLargeWorkers
 		}
@@ -419,7 +413,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	for i := 0; i < clientNumber; i++ {
 		var p int
-		err := clientsGOB[i].decoder.Decode(&p)
+		err := clients[i].decoder.Decode(&p)
 
 		if err != nil {
 			fmt.Println(err)
@@ -431,16 +425,16 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	}
 	for i := 0; i < clientNumber; i++ {
 		p := 1
-		err := clientsGOB[i].encoder.Encode(&p)
+		err := clients[i].encoder.Encode(&p)
 
 		if err != nil {
 			fmt.Println(err)
 		}
 
 		if i < clientSmall {
-			go listenToWorker(clientsGOB[i].decoder, workerData, clientSmallWorkers)
+			go listenToWorker(clients[i].decoder, workerData, clientSmallWorkers)
 		} else {
-			go listenToWorker(clientsGOB[i].decoder, workerData, clientLargeWorkers)
+			go listenToWorker(clients[i].decoder, workerData, clientLargeWorkers)
 		}
 	}
 
@@ -462,7 +456,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// Tell workers to exit listening functions
 	for i := 0; i < clientNumber; i++ {
-		err := clientsGOB[i].encoder.Encode(controllerData{
+		err := clients[i].encoder.Encode(controllerData{
 			Index: -1,
 			Data:  0,
 		})

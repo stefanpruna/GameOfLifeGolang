@@ -4,10 +4,9 @@ import (
 	"encoding/gob"
 	"fmt"
 	"net"
-	"time"
 )
 
-const hostname = "192.168.0.8:"
+const hostname = "137.222.29.178:"
 
 const (
 	INIT     = 0
@@ -337,6 +336,9 @@ func initialiseChannels(workerChannels []workerChannel, workers, imageWidth, end
 	workerChannels[i].localDistributor = make(chan byte)
 	workerChannels[i].distributorInput = make(chan int, 1)
 
+	//workerChannels[positiveModulo(i-1, workers)].outputHalo[1] = workerChannels[i].inputHalo[0]
+	//workerChannels[positiveModulo(i+1, workers)].outputHalo[0] = workerChannels[i].inputHalo[1]
+
 	if i == 0 {
 		workerChannels[0].outputHalo[0] = make(chan byte, imageWidth)
 		workerChannels[i+1].outputHalo[0] = workerChannels[i].inputHalo[1]
@@ -378,14 +380,14 @@ func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 	// This client is ready to receive
 	err := encoder.Encode(1)
 	if err != nil {
-		fmt.Println("err", err)
+		fmt.Println("waitForOtherClients enc err", err)
 	}
 
 	var p int
 	err = decoder.Decode(&p)
 	// All clients are ready to receive
 	if err != nil {
-		fmt.Println("err", err)
+		fmt.Println("waitForOtherClients err", err)
 	}
 	if p != 1 {
 		fmt.Println("Error from distributor, p =", p)
@@ -402,8 +404,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 	err := decoder.Decode(&p)
 
 	if err != nil {
-		fmt.Println("err", err)
+		fmt.Println("initPackage err", err)
 	}
+
 	workerChannel := make([]workerChannel, p.Workers)
 	workerPackages := make([]workerPackage, p.Workers)
 	for i := 0; i < p.Workers; i++ {
@@ -411,7 +414,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder) {
 		err = decoder.Decode(&w)
 		//fmt.Println(w)
 		if err != nil {
-			fmt.Println("err", err)
+			fmt.Println("worker for loop err", err)
 			break
 		}
 		//
@@ -532,6 +535,7 @@ func main() {
 	dec := gob.NewDecoder(conn)
 	enc := gob.NewEncoder(conn)
 
+	i := 0
 	for {
 		var packetType int = 0
 		err := dec.Decode(&packetType)
@@ -544,7 +548,8 @@ func main() {
 		if packetType == INIT {
 			fmt.Println("Starting distributor..")
 			distributor(enc, dec)
-			time.Sleep(time.Second * 4)
+			i++
+			fmt.Println("Ran", i, "times.")
 		}
 	}
 }

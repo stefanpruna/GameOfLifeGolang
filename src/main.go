@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/gob"
 	"flag"
 	"fmt"
 	"net"
@@ -69,7 +70,7 @@ type ioChans struct {
 // It makes some channels and starts relevant goroutines.
 // It places the created channels in the relevant structs.
 // It returns an array of alive cells returned by the distributor.
-func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []net.Conn) []cell {
+func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []clientData) []cell {
 	var dChans distributorChans
 	var ioChans ioChans
 
@@ -102,7 +103,9 @@ func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []ne
 	return alive
 }
 
-func listenForClients(clientNumber int, clients []net.Conn) {
+func processClients(clientNumber int) []clientData {
+
+	clients := make([]clientData, clientNumber)
 
 	ln, err := net.Listen("tcp4", ":4000")
 	if err != nil {
@@ -116,9 +119,14 @@ func listenForClients(clientNumber int, clients []net.Conn) {
 				fmt.Println(err)
 			}
 			fmt.Println("Client number", i, "/", clientNumber, "connected")
-			clients[i] = conn
+
+			clients[i].encoder = gob.NewEncoder(conn)
+			clients[i].decoder = gob.NewDecoder(conn)
+			clients[i].ip, _, _ = net.SplitHostPort(conn.RemoteAddr().String())
 		}
 	}
+
+	return clients
 }
 
 const clientNumber = 1
@@ -131,28 +139,27 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		16,
+		4,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
 		&params.imageWidth,
 		"w",
-		512,
+		16,
 		"Specify the width of the image. Defaults to 512.")
 
 	flag.IntVar(
 		&params.imageHeight,
 		"h",
-		512,
+		16,
 		"Specify the height of the image. Defaults to 512.")
 
 	flag.Parse()
 
 	params.turns = 100
 
-	var clients = make([]net.Conn, clientNumber)
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
-	listenForClients(clientNumber, clients)
+	clients := processClients(clientNumber)
 
 	startControlServer(params)
 	keyChan := make(chan rune)
