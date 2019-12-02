@@ -129,7 +129,7 @@ func processClients(clientNumber int) []clientData {
 	return clients
 }
 
-const clientNumber = 2
+const clientNumber = 3
 
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
@@ -139,7 +139,7 @@ func main() {
 	flag.IntVar(
 		&params.threads,
 		"t",
-		15,
+		16,
 		"Specify the number of worker threads to use. Defaults to 8.")
 
 	flag.IntVar(
