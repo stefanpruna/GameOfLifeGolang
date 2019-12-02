@@ -170,7 +170,6 @@ func main() {
 	go getKeyboardCommand(keyChan)
 
 	gameOfLife(params, keyChan, clientNumber, clients)
-	//gameOfLife(params, keyChan, clientNumber, clients)
 
 	StopControlServer()
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
+	"io"
 	"net"
 )
 
@@ -134,7 +135,6 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	stopAtTurn := -2
 
 	for turn := 0; turn < p.Turns; {
-		fmt.Println("At turn", turn)
 
 		if turn == stopAtTurn+1 {
 			err := encoder.Encode(distributorPackage{
@@ -486,7 +486,6 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	}
 	fmt.Println("Done")
 	if r == 1 {
-		fmt.Println("QUITTTTTTTTTT")
 		return -1 // Quit command
 	}
 	if initP.Clients == 1 {
@@ -580,6 +579,10 @@ func main() {
 		var packetType int = 0
 		err := dec.Decode(&packetType)
 		if err != nil {
+			if err == io.EOF {
+				fmt.Println("Connection closed, exiting worker.")
+				return
+			}
 			fmt.Println("err", err)
 			break
 		}
