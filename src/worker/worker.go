@@ -399,6 +399,11 @@ func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 
 }
 
+type haloPacket struct {
+	Index int
+	Data  []byte
+}
+
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan byte) int {
 	var haloClients = make([]net.Conn, 2)
 	var done = make(chan net.Listener)
@@ -434,9 +439,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 
 	var ln net.Listener
 	// Connect to external halo sockets
-	if initP.Clients != 1 {
-		go receiveFromClient(initP.IpBefore, workerChannel[0].inputHalo[0], initP.Width, initP.Turns, exitThread[1])
-		go receiveFromClient(initP.IpAfter, workerChannel[initP.Workers-1].inputHalo[1], initP.Width, initP.Turns, exitThread[2])
+	if initP.Clients > 1 {
+		go receiveFromClient(initP.IpBefore, [2]chan byte{workerChannel[0].inputHalo[0], workerChannel[initP.Workers-1].inputHalo[1]}, initP.Width, initP.Turns, exitThread[1])
+		go receiveFromClient(initP.IpAfter, [2]chan byte{workerChannel[0].inputHalo[0], workerChannel[initP.Workers-1].inputHalo[1]}, initP.Width, initP.Turns, exitThread[2])
 
 		ln = <-done
 	}
@@ -447,11 +452,11 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		ip0, _, _ := net.SplitHostPort(haloClients[0].RemoteAddr().String())
 		ip1, _, _ := net.SplitHostPort(haloClients[1].RemoteAddr().String())
 		if ip0 == initP.IpBefore && ip1 == initP.IpAfter {
-			go serveToClient(haloClients[0], workerChannel[0].outputHalo[0], initP.Width, initP.Turns, exitThread[3])
-			go serveToClient(haloClients[1], workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns, exitThread[4])
+			go serveToClient(haloClients[0], 1, workerChannel[0].outputHalo[0], initP.Width, initP.Turns, exitThread[3])
+			go serveToClient(haloClients[1], 0, workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns, exitThread[4])
 		} else if ip0 == initP.IpAfter && ip1 == initP.IpBefore {
-			go serveToClient(haloClients[1], workerChannel[0].outputHalo[0], initP.Width, initP.Turns, exitThread[3])
-			go serveToClient(haloClients[0], workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns, exitThread[4])
+			go serveToClient(haloClients[1], 1, workerChannel[0].outputHalo[0], initP.Width, initP.Turns, exitThread[3])
+			go serveToClient(haloClients[0], 0, workerChannel[initP.Workers-1].outputHalo[1], initP.Width, initP.Turns, exitThread[4])
 		} else {
 			fmt.Println("IPs are mismatched")
 		}
@@ -481,7 +486,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	return initP.Clients
 }
 
-func serveToClient(conn net.Conn, c chan byte, width int, turns int, exit chan byte) {
+func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, exit chan byte) {
 	enc := gob.NewEncoder(conn)
 	for i := 0; i < turns; i++ {
 		var haloData = make([]byte, width)
@@ -490,7 +495,7 @@ func serveToClient(conn net.Conn, c chan byte, width int, turns int, exit chan b
 			haloData[i] = <-c
 		}
 
-		err := enc.Encode(haloData)
+		err := enc.Encode(haloPacket{index, haloData})
 		//fmt.Println("Sent halo to socket,", haloData)
 
 		if err != nil {
@@ -518,7 +523,7 @@ func waitForClients(clients []net.Conn, done chan net.Listener) {
 	done <- ln
 }
 
-func receiveFromClient(ip string, c chan byte, width int, turns int, exit chan byte) {
+func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit chan byte) {
 	conn, err := net.Dial("tcp4", ip+":4001")
 	if err != nil {
 		fmt.Println("err", err)
@@ -526,8 +531,8 @@ func receiveFromClient(ip string, c chan byte, width int, turns int, exit chan b
 
 	dec := gob.NewDecoder(conn)
 	for i := 0; i < turns; i++ {
-		var haloData = make([]byte, width)
-		err := dec.Decode(&haloData)
+		var haloP haloPacket
+		err := dec.Decode(&haloP)
 		//fmt.Println("Received from socket,", haloData)
 
 		if err != nil {
@@ -536,8 +541,8 @@ func receiveFromClient(ip string, c chan byte, width int, turns int, exit chan b
 		}
 
 		// Take bytes from haloData row slice and put them in the channel
-		for _, b := range haloData {
-			c <- b
+		for _, b := range haloP.Data {
+			c[haloP.Index] <- b
 		}
 	}
 
