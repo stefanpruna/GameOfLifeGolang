@@ -567,7 +567,7 @@ func main() {
 	flag.StringVar(&hostname, "hostname", defaultHostname, "The hostname of the server.")
 	flag.Parse()
 
-	fmt.Println("ip has value ", hostname)
+	fmt.Println("Connecting to ", hostname)
 
 	conn, err := net.Dial("tcp4", hostname+":4000")
 	if err != nil {
