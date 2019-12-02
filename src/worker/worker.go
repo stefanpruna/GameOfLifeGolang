@@ -132,6 +132,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	halo0 := true
 	halo1 := true
 	stopAtTurn := -2
+	quitBeforeCompletion := false
 
 	for turn := 0; turn < p.Turns; {
 		fmt.Println("At turn", turn)
@@ -161,6 +162,7 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 						fmt.Println("err", err)
 					}
 				} else if r == quit {
+					quitBeforeCompletion = true
 					return
 				} else if r == ping {
 					alive := 0
@@ -326,8 +328,12 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 	if err != nil {
 		fmt.Println("err", err)
 	}
-	channels.localDistributor <- 1
 
+	if quitBeforeCompletion {
+		channels.localDistributor <- 1
+	} else {
+		channels.localDistributor <- 0
+	}
 }
 
 func initialiseChannels(workerChannels []workerChannel, workers, clients, imageWidth, endX, startX, i int) {
@@ -472,8 +478,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	}
 
 	fmt.Println("All workers active")
+	var r byte
 	for i := 0; i < initP.Workers; i++ {
-		<-workerChannel[i].localDistributor
+		r = <-workerChannel[i].localDistributor
 	}
 
 	if initP.Clients != 1 {
@@ -483,7 +490,13 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		}
 	}
 	fmt.Println("Done")
-	return initP.Clients
+	if r == 1 {
+		return -1 // Quit command
+	}
+	if initP.Clients == 1 {
+		return 1 // Just local client, no halo sockets
+	}
+	return 0 // Normal termination
 }
 
 func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, exit chan byte) {
@@ -578,13 +591,22 @@ func main() {
 
 		if packetType == INIT {
 			fmt.Println("Starting distributor..")
-			threads := distributor(enc, dec, exitThread)
-			for i := 0; i < threads; i++ {
+			result := distributor(enc, dec, exitThread)
+			waitForX := 5
+
+			if result == -1 || result == 1 {
+				waitForX = 1
+			}
+			for i := 0; i < waitForX; i++ {
 				<-exitThread[i]
 			}
 
 			executions++
 			fmt.Println("Ran", executions, "times.")
+
+			if result == -1 { // If quit command, quit worker program
+				return
+			}
 		}
 	}
 }
