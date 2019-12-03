@@ -53,17 +53,6 @@ type controllerData struct {
 	Index, Data int
 }
 
-func positiveModulo(x, m int) int {
-	if x > 0 {
-		return x % m
-	} else {
-		for x < 0 {
-			x += m
-		}
-		return x % m
-	}
-}
-
 // Returns the new state of a cell from the number of alive neighbours and current state
 func getNewState(numberOfAlive int, cellState bool) int {
 	if cellState == true {
