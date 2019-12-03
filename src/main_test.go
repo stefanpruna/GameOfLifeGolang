@@ -416,54 +416,56 @@ func Benchmark(b *testing.B) {
 			}},
 
 		*/
-		{
-			"512x512x12", golParams{
-				turns:       benchLength,
-				threads:     12,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
+		/*
 
-		{
-			"512x512x16", golParams{
-				turns:       benchLength,
-				threads:     16,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
+			{
+				"512x512x12", golParams{
+					turns:       benchLength,
+					threads:     12,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},
 
-		{
-			"512x512x32", golParams{
-				turns:       benchLength,
-				threads:     32,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
+			{
+				"512x512x16", golParams{
+					turns:       benchLength,
+					threads:     16,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},
 
-		{
-			"512x512x64", golParams{
-				turns:       benchLength,
-				threads:     64,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
+			{
+				"512x512x32", golParams{
+					turns:       benchLength,
+					threads:     32,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},
 
-		{
-			"512x512x96", golParams{
-				turns:       benchLength,
-				threads:     96,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
+			{
+				"512x512x64", golParams{
+					turns:       benchLength,
+					threads:     64,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},
 
+			{
+				"512x512x96", golParams{
+					turns:       benchLength,
+					threads:     96,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},
+
+			{
+				"512x512x128", golParams{
+					turns:       benchLength,
+					threads:     128,
+					imageWidth:  512,
+					imageHeight: 512,
+				}},*/
 		{
-			"512x512x128", golParams{
-				turns:       benchLength,
-				threads:     128,
-				imageWidth:  512,
-				imageHeight: 512,
-			}},
-		/*{
 			"5120x5120x32", golParams{
 				turns:       benchLength,
 				threads:     32,
@@ -484,7 +486,7 @@ func Benchmark(b *testing.B) {
 				threads:     128,
 				imageWidth:  5120,
 				imageHeight: 5120,
-			}},*/
+			}},
 	}
 
 	for _, bm := range benchmarks {
