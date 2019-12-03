@@ -61,7 +61,6 @@ func initialiseChannels(workerChannels []workerData, threadsSmall, threadsSmallH
 
 		workerChannels[i].distributorOutput = make(chan int, 1)
 	}
-}
 
 	for i := 0; i < threadsLarge; i++ {
 		workerChannels[i+threadsSmall].outputWorld = make(chan [][]byte, 1)
@@ -87,7 +86,6 @@ type clientData struct {
 	decoder *gob.Decoder
 	ip      string
 }
-
 
 func pauseWorkers(workerData []workerData, stopAtTurn *int) {
 	// Pause and get current turns
@@ -119,7 +117,7 @@ func receiveWorld(world [][]byte, workerData []workerData, threadsSmall, threads
 	for i, worker := range workerData {
 		tw := <-worker.outputWorld
 		for i := range tw {
-			copy(world[startX +i], tw[i])
+			copy(world[startX+i], tw[i])
 		}
 
 		// New startX, endX
