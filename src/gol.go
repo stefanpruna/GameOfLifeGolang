@@ -179,8 +179,9 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 						fmt.Println("Saving and quitting on turn", stopAtTurn)
 					}
 					sendToWorkers(workerData, save)
-					// If not saving while already paused
-					if !paused {
+
+					// If paused just to save, unpause. If quit, don't unpause
+					if !paused && k == 's' {
 						sendToWorkers(workerData, resume)
 					}
 

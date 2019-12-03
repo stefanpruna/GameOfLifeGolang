@@ -534,6 +534,7 @@ func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit cha
 	conn, err := net.Dial("tcp4", ip+":4001")
 	if err != nil {
 		fmt.Println("err", err)
+		exit <- 1
 		return
 	}
 
