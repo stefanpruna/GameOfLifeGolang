@@ -449,7 +449,7 @@ func Benchmark(b *testing.B) {
 			}},
 
 		{
-			"512x512x64", golParams{
+			"512x512x128", golParams{
 				turns:       benchLength,
 				threads:     128,
 				imageWidth:  512,
