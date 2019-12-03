@@ -465,14 +465,14 @@ func Benchmark(b *testing.B) {
 			}},*/
 		{
 			"5120x5120x32", golParams{
-				turns:       benchLength,
+				turns:       100,
 				threads:     32,
 				imageWidth:  5120,
 				imageHeight: 5120,
 			}},
 		{
 			"5120x5120x64", golParams{
-				turns:       benchLength,
+				turns:       100,
 				threads:     64,
 				imageWidth:  5120,
 				imageHeight: 5120,
@@ -480,7 +480,7 @@ func Benchmark(b *testing.B) {
 
 		{
 			"5120x5120x128", golParams{
-				turns:       benchLength,
+				turns:       100,
 				threads:     128,
 				imageWidth:  5120,
 				imageHeight: 5120,
