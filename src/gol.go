@@ -345,8 +345,9 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 						fmt.Println("Saving and quitting on turn", stopAtTurn)
 					}
 					sendToWorkers(workerChannels, save)
-					// If not saving while already paused
-					if !paused {
+
+					// If paused just to save, unpause. If quit, don't unpause
+					if !paused && k == 's' {
 						sendToWorkers(workerChannels, resume)
 					}
 
