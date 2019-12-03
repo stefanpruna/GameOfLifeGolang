@@ -64,23 +64,6 @@ func positiveModulo(x, m int) int {
 	}
 }
 
-// Return the number of alive neighbours
-func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
-	aliveNeighbours := 0
-
-	dx := [8]int{-1, -1, 0, 1, 1, 1, 0, -1}
-	dy := [8]int{0, 1, 1, 1, 0, -1, -1, -1}
-
-	for i := 0; i < 8; i++ {
-		newX := x + dx[i]
-		newY := positiveModulo(y+dy[i], imageWidth)
-		if world[newX][newY] == 0xFF {
-			aliveNeighbours++
-		}
-	}
-	return aliveNeighbours
-}
-
 // Returns the new state of a cell from the number of alive neighbours and current state
 func getNewState(numberOfAlive int, cellState bool) int {
 	if cellState == true {
@@ -238,7 +221,21 @@ func worker(p initPackage, channels workerChannel, wp workerPackage, encoder *go
 
 			for i := 1; i < endX-startX+1; i++ {
 				for j := startY; j < endY; j++ {
-					switch getNewState(getAliveNeighbours(world, i, j, endY), world[i][j] == 0xFF) {
+					// Compute alive neighbours
+					aliveNeighbours := 0
+
+					yp1 := (j + 1) % endY
+					ym1 := j - 1
+					if ym1 < 0 {
+						ym1 += endY
+					}
+
+					aliveNeighbours = int(world[i+1][j]) + int(world[i-1][j]) +
+						int(world[i][yp1]) + int(world[i][ym1]) +
+						int(world[i+1][yp1]) + int(world[i+1][ym1]) +
+						int(world[i-1][yp1]) + int(world[i-1][ym1])
+
+					switch getNewState(aliveNeighbours/255, world[i][j] == 0xFF) {
 					case -1:
 						newWorld[i][j] = 0x00
 					case 1:

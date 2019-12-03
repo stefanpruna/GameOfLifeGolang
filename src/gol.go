@@ -24,14 +24,10 @@ const (
 )
 
 func positiveModulo(x, m int) int {
-	if x > 0 {
-		return x % m
-	} else {
-		for x < 0 {
-			x += m
-		}
-		return x % m
+	for x < 0 {
+		x += m
 	}
+	return x % m
 }
 
 // Makes a matrix slice
