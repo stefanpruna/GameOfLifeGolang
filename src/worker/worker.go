@@ -369,8 +369,8 @@ func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel, exit
 			break
 		}
 
+		// Exit
 		if p.Index == -1 {
-			fmt.Println("exited receiveFromDistributor")
 			break
 		}
 		channels[p.Index].distributorInput <- p.Data
@@ -378,7 +378,7 @@ func receiveFromDistributor(decoder *gob.Decoder, channels []workerChannel, exit
 	exit <- 1
 }
 
-func waitForOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
+func syncWithOtherClients(encoder *gob.Encoder, decoder *gob.Decoder) {
 	// This client is ready to receive
 	err := encoder.Encode(1)
 	if err != nil {
@@ -405,6 +405,7 @@ type haloPacket struct {
 func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan byte) int {
 	var haloClients = make([]net.Conn, 2)
 	var done = make(chan net.Listener)
+	var listening = make(chan byte)
 
 	var initP initPackage
 	err := decoder.Decode(&initP)
@@ -413,7 +414,7 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	}
 
 	if initP.Clients != 1 {
-		go waitForClients(haloClients, done)
+		go waitForClients(haloClients, done, listening)
 	}
 
 	workerChannel := make([]workerChannel, initP.Workers)
@@ -433,7 +434,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 		initialiseChannels(workerChannel, initP.Workers, initP.Clients, initP.Width, w.EndX, w.StartX, i)
 	}
 
-	waitForOtherClients(encoder, decoder)
+	// Wait until the program binds to port, then sync to this point with all clients. At this point all of them are listening and ready for connections
+	<-listening
+	syncWithOtherClients(encoder, decoder)
 
 	var ln net.Listener
 	// Connect to external halo sockets
@@ -510,25 +513,29 @@ func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, 
 	exit <- 1
 }
 
-func waitForClients(clients []net.Conn, done chan net.Listener) {
+func waitForClients(clients []net.Conn, done chan net.Listener, listening chan byte) {
 	ln, err := net.Listen("tcp4", ":4001")
 	if err != nil {
 		fmt.Println("err", err)
+		return
 	}
+	listening <- 1
 
 	if ln != nil {
 		for i := 0; i < 2; i++ {
 			conn, _ := ln.Accept()
 			clients[i] = conn
 		}
+		done <- ln
 	}
-	done <- ln
 }
 
 func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit chan byte) {
 	conn, err := net.Dial("tcp4", ip+":4001")
 	if err != nil {
 		fmt.Println("err", err)
+		exit <- 1
+		return
 	}
 
 	dec := gob.NewDecoder(conn)
@@ -539,7 +546,7 @@ func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit cha
 
 		if err != nil {
 			fmt.Println("err", err)
-			break
+			return
 		}
 
 		// Take bytes from haloData row slice and put them in the channel

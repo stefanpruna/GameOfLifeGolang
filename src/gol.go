@@ -34,6 +34,15 @@ func positiveModulo(x, m int) int {
 	}
 }
 
+// Makes a matrix slice
+func makeMatrix(width, height int) [][]byte {
+	M := make([][]byte, height)
+	for i := range M {
+		M[i] = make([]byte, width)
+	}
+	return M
+}
+
 // Sends world to output
 func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	d.io.command <- ioOutput
@@ -78,6 +87,56 @@ type clientData struct {
 	ip      string
 }
 
+func pauseWorkers(workerData []workerData, stopAtTurn *int) {
+	// Pause and get current turns
+	for _, worker := range workerData {
+		encodeData(worker, pause)
+	}
+	for _, worker := range workerData {
+		t := <-worker.distributorOutput
+		if t > *stopAtTurn {
+			*stopAtTurn = t
+		}
+	}
+
+	// Tell all workers to stop after turn stopAtTurn
+	for _, worker := range workerData {
+		encodeData(worker, *stopAtTurn)
+	}
+	for _, channel := range workerData {
+		r := <-channel.distributorOutput
+		if r != pause {
+			fmt.Println("Something has gone wrong, r =", r)
+		}
+	}
+}
+
+func receiveWorld(world [][]byte, workerData []workerData, threadsSmall, threadsSmallHeight, threadsLargeHeight int) {
+	startX := 0
+	endX := threadsSmallHeight
+	for i, worker := range workerData {
+		tw := <-worker.outputWorld
+		for i := range tw {
+			copy(world[startX+i], tw[i])
+		}
+
+		// New startX, endX
+		startX = endX
+		if i < threadsSmall-1 {
+			endX += threadsSmallHeight
+		} else {
+			endX += threadsLargeHeight
+		}
+	}
+}
+
+// Sends data over all worker channels
+func sendToWorkers(workerData []workerData, data int) {
+	for _, worker := range workerData {
+		encodeData(worker, data)
+	}
+}
+
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
@@ -87,32 +146,12 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 		case <-timer.C:
 			// Get alive cells
 			alive := 0
-
 			if !paused {
-				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i], pause)
-				}
-				for i := 0; i < p.threads; i++ {
-					t := <-workerData[i].distributorOutput
-					if t > stopAtTurn {
-						stopAtTurn = t
-					}
-				}
-				// Tell all workers to stop after turn stopAtTurn
-				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i], stopAtTurn)
-				}
-				for i := 0; i < p.threads; i++ {
-					r := <-workerData[i].distributorOutput
-					if r != pause {
-						fmt.Println("Something has gone wrong, r =", r)
-					}
-				}
-				for i := 0; i < p.threads; i++ {
-					encodeData(workerData[i], ping)
-				}
-				for i := 0; i < p.threads; i++ {
-					alive += <-workerData[i].distributorOutput
+				pauseWorkers(workerData, &stopAtTurn)
+				// Ping unpauses workers
+				sendToWorkers(workerData, ping)
+				for _, channel := range workerData {
+					alive += <-channel.distributorOutput
 				}
 				fmt.Println("There are", alive, "alive cells in the world.")
 			}
@@ -122,36 +161,14 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 			if k == 'p' || k == 's' || k == 'q' {
 				// If not already paused
 				if !paused {
-					// Get turn from all workers
-					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i], pause)
-					}
-					// Compute turn to be stopped after
-					for i := 0; i < p.threads; i++ {
-						t := <-workerData[i].distributorOutput
-						if t > stopAtTurn {
-							stopAtTurn = t
-						}
-					}
-					// Tell all workers to stop after turn stopAtTurn
-					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i], stopAtTurn)
-					}
-					for i := 0; i < p.threads; i++ {
-						r := <-workerData[i].distributorOutput
-						if r != pause {
-							fmt.Println("Something has gone wrong, r =", r)
-						}
-					}
+					pauseWorkers(workerData, &stopAtTurn)
 					// Paused until resume
 					if k == 'p' {
 						fmt.Println("Pausing. The turn number", stopAtTurn+1, "is currently being processed.")
 					}
 				} else if k == 'p' { // If this was a pause command and we are already paused, resume
 					// Resume all workers
-					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i], resume)
-					}
+					sendToWorkers(workerData, resume)
 					fmt.Println("Continuing.")
 				}
 				// If this was a save or quit command
@@ -161,42 +178,21 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 					} else {
 						fmt.Println("Saving and quitting on turn", stopAtTurn)
 					}
-					for i := 0; i < p.threads; i++ {
-						encodeData(workerData[i], save)
+					sendToWorkers(workerData, save)
+
+					// If paused just to save, unpause. If quit, don't unpause
+					if !paused && k == 's' {
+						sendToWorkers(workerData, resume)
 					}
-					// If not saving while already paused
-					if !paused {
-						for i := 0; i < p.threads; i++ {
-							encodeData(workerData[i], resume)
-						}
-					}
-					// Get the world and save it
-					for t := 0; t < threadsSmall; t++ {
-						tw := <-workerData[t].outputWorld
-						startX := threadsSmallHeight * t
-						for x := 0; x < threadsSmallHeight; x++ {
-							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = tw[x][y]
-							}
-						}
-					}
-					for t := 0; t < threadsLarge; t++ {
-						tw := <-workerData[t+threadsSmall].outputWorld
-						startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-						for x := 0; x < threadsLargeHeight; x++ {
-							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = tw[x][y]
-							}
-						}
-					}
+
+					// Receive and output world
+					receiveWorld(world, workerData, threadsSmall, threadsSmallHeight, threadsLargeHeight)
 					outputWorld(p, stopAtTurn, d, world)
 
 					// Quit workers
 					if k == 'q' {
-						for i := 0; i < p.threads; i++ {
-							encodeData(workerData[i], quit)
-							q = true
-						}
+						q = true
+						sendToWorkers(workerData, quit)
 					}
 				}
 				// If this was a pause command, actually pause
@@ -204,32 +200,15 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 					paused = !paused
 				}
 			}
-		case o := <-workerData[0].distributorOutput:
+		case o := <-workerData[0].distributorOutput: // Workers are starting to finish
 			if o != -1 {
 				fmt.Println("Something has gone wrong, o =", o)
 			}
 			for i := 1; i < p.threads; i++ {
 				<-workerData[i].distributorOutput
 			}
-			// Get the world and save it
-			for t := 0; t < threadsSmall; t++ {
-				tw := <-workerData[t].outputWorld
-				startX := threadsSmallHeight * t
-				for x := 0; x < threadsSmallHeight; x++ {
-					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = tw[x][y]
-					}
-				}
-			}
-			for t := 0; t < threadsLarge; t++ {
-				tw := <-workerData[t+threadsSmall].outputWorld
-				startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-				for x := 0; x < threadsLargeHeight; x++ {
-					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = tw[x][y]
-					}
-				}
-			}
+			// Receive the world and quit
+			receiveWorld(world, workerData, threadsSmall, threadsSmallHeight, threadsLargeHeight)
 			q = true
 		}
 	}
@@ -311,10 +290,7 @@ func startWorkers(client clientData, initP initPackage, workerP []workerPackage,
 func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune, clients []clientData, clientNumber int) {
 
 	// Create the 2D slice to store the world.
-	world := make([][]byte, p.imageHeight)
-	for i := range world {
-		world[i] = make([]byte, p.imageWidth)
-	}
+	world := makeMatrix(p.imageWidth, p.imageHeight)
 
 	// Request the io goroutine to read in the image with the given filename.
 	d.io.command <- ioInput
@@ -341,7 +317,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
 	threadsLarge := p.imageHeight % p.threads
 	threadsSmall := p.threads - p.imageHeight%p.threads
-
 	threadsLargeHeight := p.imageHeight/p.threads + 1
 	threadsSmallHeight := p.imageHeight / p.threads
 
@@ -432,7 +407,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
-	// main worker controller function
+	// Process IO and control workers
 	workerController(p, world, workerData, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.

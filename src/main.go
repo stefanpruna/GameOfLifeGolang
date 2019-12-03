@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-const clientNumber = 16
+const clientNumber = 3
 
 // golParams provides the details of how to run the Game of Life and which image to load.
 type golParams struct {
