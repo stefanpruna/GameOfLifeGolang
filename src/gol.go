@@ -10,9 +10,9 @@ import (
 type workerChannel struct {
 	inputByte,
 	outputByte chan byte
-	inputHalo         [2]chan byte
-	outputHalo        [2]chan byte
-	distributorInput  chan int
+	inputHalo,
+	outputHalo [2]chan byte
+	distributorInput,
 	distributorOutput chan int
 }
 
@@ -56,14 +56,11 @@ func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
 // Returns the new state of a cell from the number of alive neighbours and current state
 func getNewState(numberOfAlive int, cellState bool) int {
 	if cellState == true {
-		if numberOfAlive < 2 {
+		if numberOfAlive < 2 || numberOfAlive > 3 {
 			return -1
 		}
 		if numberOfAlive <= 3 {
 			return 0
-		}
-		if numberOfAlive > 3 {
-			return -1
 		}
 	} else {
 		if numberOfAlive == 3 {
@@ -73,44 +70,75 @@ func getNewState(numberOfAlive int, cellState bool) int {
 	return 0
 }
 
+// Makes a matrix slice
+func makeMatrix(width, height int) [][]byte {
+	M := make([][]byte, height)
+	for i := range M {
+		M[i] = make([]byte, width)
+	}
+	return M
+}
+
+// Receive halo, or receive command from distributor
+func receiveOrInterrupt(world [][]byte, channels workerChannel, turn int, halo *bool, stopAtTurn *int, lineToReceive, haloIndex int) {
+	select {
+	case c := <-channels.inputHalo[haloIndex]:
+		len := len(world[lineToReceive])
+		world[lineToReceive][0] = c
+		for j := 1; j < len; j++ {
+			world[lineToReceive][j] = <-channels.inputHalo[haloIndex]
+		}
+		*halo = true
+	case <-channels.distributorInput:
+		channels.distributorOutput <- turn
+		*stopAtTurn = <-channels.distributorInput
+	}
+}
+
+// Send halo, or receive command from distributor
+func sendOrInterrupt(world [][]byte, channels workerChannel, turn int, out *bool, stopAtTurn *int, lineToSend, haloIndex int) {
+	select {
+	case channels.outputHalo[haloIndex] <- world[lineToSend][0]:
+		len := len(world[lineToSend])
+		for j := 1; j < len; j++ {
+			channels.outputHalo[haloIndex] <- world[lineToSend][j]
+		}
+		*out = true
+	case <-channels.distributorInput:
+		channels.distributorOutput <- turn
+		*stopAtTurn = <-channels.distributorInput
+	}
+}
+
 // Worker function
 func worker(p golParams, channels workerChannel, startX, endX, startY, endY int) {
 
-	world := make([][]byte, endX-startX+2)
-	for i := range world {
-		world[i] = make([]byte, endY-startY)
-	}
+	world := makeMatrix(endY-startY, endX-startX+2)
+	newWorld := makeMatrix(endY-startY, endX-startX+2)
 
-	newWorld := make([][]byte, endX-startX+2)
-	for i := range world {
-		newWorld[i] = make([]byte, endY-startY)
-	}
-
+	// Receive initial world from distributor
 	for i := range world {
 		for j := 0; j < p.imageWidth; j++ {
 			newWorld[i][j] = <-channels.inputByte
-		}
-	}
-
-	for i := range world {
-		for j := range world[i] {
 			world[i][j] = newWorld[i][j]
 		}
 	}
 
-	halo0 := true
-	halo1 := true
+	halo0, halo1 := true, true
 	stopAtTurn := -2
 
 	for turn := 0; turn < p.turns; {
 
+		// This is the turn in which all workers synchronise and stop
 		if turn == stopAtTurn+1 {
 			channels.distributorOutput <- pause
+			// Process IO
 			for {
 				r := <-channels.distributorInput
 				if r == resume {
 					break
 				} else if r == save {
+					// Send the world to the distributor
 					for i := 1; i < endX-startX+1; i++ {
 						for j := startY; j < endY; j++ {
 							channels.outputByte <- newWorld[i][j]
@@ -119,6 +147,7 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 				} else if r == quit {
 					return
 				} else if r == ping {
+					// Send the number of alive cells to the distributor
 					alive := 0
 					for i := 1; i < endX-startX+1; i++ {
 						for j := startY; j < endY; j++ {
@@ -129,45 +158,25 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 					}
 					channels.distributorOutput <- alive
 					break
-				} else {
-					fmt.Println("Something went wrong, r = ", r)
 				}
 			}
 		}
 
-		// Process something
+		// Get halos or command
 		if turn != 0 {
+			// Either receive the top halo, or a command from distributor
 			if !halo0 {
-				select {
-				case c := <-channels.inputHalo[0]:
-					world[0][0] = c
-					for j := 1; j < p.imageWidth; j++ {
-						world[0][j] = <-channels.inputHalo[0]
-					}
-					halo0 = true
-				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
-					stopAtTurn = <-channels.distributorInput
-				}
+				receiveOrInterrupt(world, channels, turn, &halo0, &stopAtTurn, 0, 0)
 			}
+			// Either receive the bottom halo, or a command from distributor
 			if !halo1 {
-				select {
-				case c := <-channels.inputHalo[1]:
-					world[endX-startX+1][0] = c
-					for j := 1; j < p.imageWidth; j++ {
-						world[endX-startX+1][j] = <-channels.inputHalo[1]
-					}
-					halo1 = true
-				case <-channels.distributorInput:
-					channels.distributorOutput <- turn
-					stopAtTurn = <-channels.distributorInput
-				}
+				receiveOrInterrupt(world, channels, turn, &halo1, &stopAtTurn, endX-startX+1, 1)
 			}
 		}
 
-		// Move on to next turn
+		// Move on to next turn, if both halos are present
 		if halo0 && halo1 {
-
+			// Execute turn
 			for i := 1; i < endX-startX+1; i++ {
 				for j := startY; j < endY; j++ {
 					switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
@@ -180,57 +189,35 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 					}
 				}
 			}
-			halo0 = false
-			halo1 = false
+			halo0, halo1 = false, false
 			turn++
 
-			out0 := false
-			out1 := false
+			// Try sending the halos, or a command from distributor
+			out0, out1 := false, false
 			for !(out0 && out1) {
 				if !out0 {
-					select {
-					case channels.outputHalo[0] <- newWorld[1][0]:
-						for j := 1; j < p.imageWidth; j++ {
-							channels.outputHalo[0] <- newWorld[1][j]
-						}
-						out0 = true
-					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
-						stopAtTurn = <-channels.distributorInput
-					}
+					sendOrInterrupt(newWorld, channels, turn, &out0, &stopAtTurn, 1, 0)
 				}
 				if !out1 {
-					select {
-					case channels.outputHalo[1] <- newWorld[endX-startX][0]:
-						for j := 1; j < p.imageWidth; j++ {
-							channels.outputHalo[1] <- newWorld[endX-startX][j]
-						}
-						out1 = true
-					case <-channels.distributorInput:
-						channels.distributorOutput <- turn
-						stopAtTurn = <-channels.distributorInput
-					}
+					sendOrInterrupt(newWorld, channels, turn, &out1, &stopAtTurn, endX-startX, 1)
 				}
 			}
 
+			// Update old world
 			for i := range world {
-				for j := range world[i] {
-					world[i][j] = newWorld[i][j]
-				}
+				copy(world[i], newWorld[i])
 			}
 		}
-
 	}
 
+	// Send the world to the distributor
 	for i := 1; i < endX-startX+1; i++ {
 		for j := startY; j < endY; j++ {
 			channels.outputByte <- newWorld[i][j]
 		}
 	}
-
 	// Done
 	channels.distributorOutput <- -1
-
 }
 
 // Sends world to output
@@ -244,33 +231,78 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	}
 }
 
-// initialise worker channels
+// Initialise worker channels
 func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int, p golParams) {
-	for i := 0; i < threadsSmall; i++ {
-		workerChannels[i].inputByte = make(chan byte, threadsSmallHeight+2)
-		workerChannels[i].outputByte = make(chan byte, threadsSmallHeight*p.imageWidth)
+	threadHeight := threadsSmallHeight
+	for i := 0; i < p.threads; i++ {
+		if i == threadsSmall {
+			threadHeight = threadsLargeHeight
+		}
+		workerChannels[i].inputByte = make(chan byte, threadHeight+2)
+		workerChannels[i].outputByte = make(chan byte, threadHeight*p.imageWidth)
 		workerChannels[i].inputHalo[0] = make(chan byte, p.imageWidth)
 		workerChannels[i].inputHalo[1] = make(chan byte, p.imageWidth)
 		workerChannels[i].distributorInput = make(chan int, 1)
 		workerChannels[i].distributorOutput = make(chan int, 1)
 
+		// Link channels
 		workerChannels[positiveModulo(i-1, p.threads)].outputHalo[1] = workerChannels[i].inputHalo[0]
 		workerChannels[positiveModulo(i+1, p.threads)].outputHalo[0] = workerChannels[i].inputHalo[1]
 	}
+}
 
-	for i := 0; i < threadsLarge; i++ {
-		workerChannels[i+threadsSmall].inputByte = make(chan byte, threadsLargeHeight+2)
-		workerChannels[i+threadsSmall].outputByte = make(chan byte, threadsLargeHeight*p.imageWidth)
-		workerChannels[i+threadsSmall].inputHalo[0] = make(chan byte, p.imageWidth)
-		workerChannels[i+threadsSmall].inputHalo[1] = make(chan byte, p.imageWidth)
-		workerChannels[i+threadsSmall].distributorInput = make(chan int, 1)
-		workerChannels[i+threadsSmall].distributorOutput = make(chan int, 1)
+func pauseWorkers(workerChannels []workerChannel, stopAtTurn *int) {
+	// Pause and get current turns
+	for _, channel := range workerChannels {
+		channel.distributorInput <- pause
+	}
+	for _, channel := range workerChannels {
+		t := <-channel.distributorOutput
+		if t > *stopAtTurn {
+			*stopAtTurn = t
+		}
+	}
 
-		workerChannels[positiveModulo(i+threadsSmall-1, p.threads)].outputHalo[1] = workerChannels[i+threadsSmall].inputHalo[0]
-		workerChannels[positiveModulo(i+threadsSmall+1, p.threads)].outputHalo[0] = workerChannels[i+threadsSmall].inputHalo[1]
+	// Tell all workers to stop after turn stopAtTurn
+	for _, channel := range workerChannels {
+		channel.distributorInput <- *stopAtTurn
+	}
+	for _, channel := range workerChannels {
+		r := <-channel.distributorOutput
+		if r != pause {
+			fmt.Println("Something has gone wrong, r =", r)
+		}
 	}
 }
 
+func receiveWorld(world [][]byte, workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLargeHeight int) {
+	startX := 0
+	endX := threadsSmallHeight
+	for i, channel := range workerChannels {
+		for x := 0; x < endX-startX; x++ {
+			len := len(world[x])
+			for y := 0; y < len; y++ {
+				world[x+startX][y] = <-channel.outputByte
+			}
+		}
+		// New startX, endX
+		startX = endX
+		if i < threadsSmall-1 {
+			endX += threadsSmallHeight
+		} else {
+			endX += threadsLargeHeight
+		}
+	}
+}
+
+// Sends data over all worker channels
+func sendToWorkers(workerChannels []workerChannel, data int) {
+	for _, channel := range workerChannels {
+		channel.distributorInput <- data
+	}
+}
+
+// Controls IO
 func workerController(p golParams, world [][]byte, workerChannels []workerChannel, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
@@ -280,32 +312,12 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 		case <-timer.C:
 			// Get alive cells
 			alive := 0
-
 			if !paused {
-				for i := 0; i < p.threads; i++ {
-					workerChannels[i].distributorInput <- pause
-				}
-				for i := 0; i < p.threads; i++ {
-					t := <-workerChannels[i].distributorOutput
-					if t > stopAtTurn {
-						stopAtTurn = t
-					}
-				}
-				// Tell all workers to stop after turn stopAtTurn
-				for i := 0; i < p.threads; i++ {
-					workerChannels[i].distributorInput <- stopAtTurn
-				}
-				for i := 0; i < p.threads; i++ {
-					r := <-workerChannels[i].distributorOutput
-					if r != pause {
-						fmt.Println("Something has gone wrong, r =", r)
-					}
-				}
-				for i := 0; i < p.threads; i++ {
-					workerChannels[i].distributorInput <- ping
-				}
-				for i := 0; i < p.threads; i++ {
-					alive += <-workerChannels[i].distributorOutput
+				pauseWorkers(workerChannels, &stopAtTurn)
+				// Ping unpauses workers
+				sendToWorkers(workerChannels, ping)
+				for _, channel := range workerChannels {
+					alive += <-channel.distributorOutput
 				}
 				fmt.Println("There are", alive, "alive cells in the world.")
 			}
@@ -315,36 +327,14 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 			if k == 'p' || k == 's' || k == 'q' {
 				// If not already paused
 				if !paused {
-					// Get turn from all workers
-					for i := 0; i < p.threads; i++ {
-						workerChannels[i].distributorInput <- pause
-					}
-					// Compute turn to be stopped after
-					for i := 0; i < p.threads; i++ {
-						t := <-workerChannels[i].distributorOutput
-						if t > stopAtTurn {
-							stopAtTurn = t
-						}
-					}
-					// Tell all workers to stop after turn stopAtTurn
-					for i := 0; i < p.threads; i++ {
-						workerChannels[i].distributorInput <- stopAtTurn
-					}
-					for i := 0; i < p.threads; i++ {
-						r := <-workerChannels[i].distributorOutput
-						if r != pause {
-							fmt.Println("Something has gone wrong, r =", r)
-						}
-					}
+					pauseWorkers(workerChannels, &stopAtTurn)
 					// Paused until resume
 					if k == 'p' {
 						fmt.Println("Pausing. The turn number", stopAtTurn+1, "is currently being processed.")
 					}
 				} else if k == 'p' { // If this was a pause command and we are already paused, resume
 					// Resume all workers
-					for i := 0; i < p.threads; i++ {
-						workerChannels[i].distributorInput <- resume
-					}
+					sendToWorkers(workerChannels, resume)
 					fmt.Println("Continuing.")
 				}
 				// If this was a save or quit command
@@ -354,40 +344,20 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 					} else {
 						fmt.Println("Saving and quitting on turn", stopAtTurn)
 					}
-					for i := 0; i < p.threads; i++ {
-						workerChannels[i].distributorInput <- save
-					}
+					sendToWorkers(workerChannels, save)
 					// If not saving while already paused
 					if !paused {
-						for i := 0; i < p.threads; i++ {
-							workerChannels[i].distributorInput <- resume
-						}
+						sendToWorkers(workerChannels, resume)
 					}
-					// Get the world and save it
-					for t := 0; t < threadsSmall; t++ {
-						startX := threadsSmallHeight * t
-						for x := 0; x < threadsSmallHeight; x++ {
-							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = <-workerChannels[t].outputByte
-							}
-						}
-					}
-					for t := 0; t < threadsLarge; t++ {
-						startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-						for x := 0; x < threadsLargeHeight; x++ {
-							for y := 0; y < p.imageWidth; y++ {
-								world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
-							}
-						}
-					}
+
+					// Receive and output world
+					receiveWorld(world, workerChannels, threadsSmall, threadsSmallHeight, threadsLargeHeight)
 					outputWorld(p, stopAtTurn, d, world)
 
 					// Quit workers
 					if k == 'q' {
-						for i := 0; i < p.threads; i++ {
-							workerChannels[i].distributorInput <- quit
-							q = true
-						}
+						q = true
+						sendToWorkers(workerChannels, quit)
 					}
 				}
 				// If this was a pause command, actually pause
@@ -395,30 +365,15 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 					paused = !paused
 				}
 			}
-		case o := <-workerChannels[0].distributorOutput:
+		case o := <-workerChannels[0].distributorOutput: // Workers are starting to finish
 			if o != -1 {
 				fmt.Println("Something has gone wrong, o =", o)
 			}
 			for i := 1; i < p.threads; i++ {
 				<-workerChannels[i].distributorOutput
 			}
-			// Get the world and save it
-			for t := 0; t < threadsSmall; t++ {
-				startX := threadsSmallHeight * t
-				for x := 0; x < threadsSmallHeight; x++ {
-					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = <-workerChannels[t].outputByte
-					}
-				}
-			}
-			for t := 0; t < threadsLarge; t++ {
-				startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-				for x := 0; x < threadsLargeHeight; x++ {
-					for y := 0; y < p.imageWidth; y++ {
-						world[x+startX][y] = <-workerChannels[t+threadsSmall].outputByte
-					}
-				}
-			}
+			// Receive the world and quit
+			receiveWorld(world, workerChannels, threadsSmall, threadsSmallHeight, threadsLargeHeight)
 			q = true
 		}
 	}
@@ -428,10 +383,7 @@ func workerController(p golParams, world [][]byte, workerChannels []workerChanne
 func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-chan rune) {
 
 	// Create the 2D slice to store the world.
-	world := make([][]byte, p.imageHeight)
-	for i := range world {
-		world[i] = make([]byte, p.imageWidth)
-	}
+	world := makeMatrix(p.imageWidth, p.imageHeight)
 
 	// Request the io goroutine to read in the image with the given filename.
 	d.io.command <- ioInput
@@ -458,7 +410,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
 	threadsLarge := p.imageHeight % p.threads
 	threadsSmall := p.threads - p.imageHeight%p.threads
-
 	threadsLargeHeight := p.imageHeight/p.threads + 1
 	threadsSmallHeight := p.imageHeight / p.threads
 
@@ -466,42 +417,27 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	workerChannels := make([]workerChannel, p.threads)
 	initialiseChannels(workerChannels, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
 
-	// start workers
-	for i := 0; i < threadsSmall; i++ {
-		startX := threadsSmallHeight * i
-		endX := threadsSmallHeight * (i + 1)
+	// Start workers
+	startX := 0
+	endX := threadsSmallHeight
+	for i := 0; i < p.threads; i++ {
 		go worker(p, workerChannels[i], startX, endX, 0, p.imageWidth)
-	}
-
-	for i := 0; i < threadsLarge; i++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*i
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1)
-		go worker(p, workerChannels[i+threadsSmall], startX, endX, 0, p.imageWidth)
-	}
-
-	// send data to workers
-	for t := 0; t < threadsSmall; t++ {
-		startX := threadsSmallHeight * t
-		endX := threadsSmallHeight * (t + 1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
+		// Send initial world to worker
+		for x := startX - 1; x < endX+1; x++ {
+			for y := 0; y < p.imageWidth; y++ {
+				workerChannels[i].inputByte <- world[positiveModulo(x, p.imageHeight)][positiveModulo(y, p.imageWidth)]
 			}
 		}
-	}
-	for t := 0; t < threadsLarge; t++ {
-		startX := threadsSmallHeight*threadsSmall + threadsLargeHeight*t
-		endX := threadsSmallHeight*threadsSmall + threadsLargeHeight*(t+1)
-
-		for i := startX - 1; i < endX+1; i++ {
-			for j := 0; j < p.imageWidth; j++ {
-				workerChannels[t+threadsSmall].inputByte <- world[positiveModulo(i, p.imageHeight)][positiveModulo(j, p.imageWidth)]
-			}
+		// New startX, endX
+		startX = endX
+		if i < threadsSmall-1 {
+			endX += threadsSmallHeight
+		} else {
+			endX += threadsLargeHeight
 		}
 	}
 
-	// main worker controller function
+	// Process IO and control workers
 	workerController(p, world, workerChannels, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
