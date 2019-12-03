@@ -435,7 +435,9 @@ func distributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []chan b
 	}
 
 	// Wait until the program binds to port, then sync to this point with all clients. At this point all of them are listening and ready for connections
-	<-listening
+	if initP.Clients > 1 {
+		<-listening
+	}
 	syncWithOtherClients(encoder, decoder)
 
 	var ln net.Listener
