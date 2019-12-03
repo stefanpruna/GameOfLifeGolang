@@ -432,7 +432,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		}
 	}
 
-	outputWorld(p, p.turns, d, world)
+	//outputWorld(p, p.turns, d, world)
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle
