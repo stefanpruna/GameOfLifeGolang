@@ -6,18 +6,6 @@ import (
 	"strings"
 )
 
-// Modulus that only returns positive number
-func positiveModulo(x, m int) int {
-	if x > 0 {
-		return x % m
-	} else {
-		for x < 0 {
-			x += m
-		}
-		return x % m
-	}
-}
-
 // Sends world to output
 func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	d.io.command <- ioOutput
@@ -27,23 +15,6 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 			d.io.world <- world[i][j]
 		}
 	}
-}
-
-// Return the number of alive neighbours
-func getAliveNeighbours(world [][]byte, x, y, imageHeight, imageWidth int) int {
-	aliveNeighbours := 0
-	//if the cell is on the left border
-	dx := [8]int{-1, -1, 0, 1, 1, 1, 0, -1}
-	dy := [8]int{0, 1, 1, 1, 0, -1, -1, -1}
-
-	for i := 0; i < 8; i++ {
-		newX := positiveModulo(x+dx[i], imageHeight)
-		newY := positiveModulo(y+dy[i], imageWidth)
-		if world[newX][newY] == 0xFF {
-			aliveNeighbours++
-		}
-	}
-	return aliveNeighbours
 }
 
 // Returns the new state of a cell from the number of alive neighbours and current state
@@ -102,7 +73,27 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 		for x := 0; x < p.imageHeight; x++ {
 			for y := 0; y < p.imageWidth; y++ {
-				switch getNewState(getAliveNeighbours(oldWorld, x, y, p.imageHeight, p.imageWidth), oldWorld[x][y] == 0xFF) {
+				// Compute alive neighbours
+				aliveNeighbours := 0
+
+				yp1 := (y + 1) % p.imageWidth
+				ym1 := y - 1
+				if ym1 < 0 {
+					ym1 += p.imageWidth
+				}
+
+				xp1 := (x + 1) % p.imageHeight
+				xm1 := x - 1
+				if xm1 < 0 {
+					xm1 += p.imageHeight
+				}
+
+				aliveNeighbours = int(oldWorld[xp1][y]) + int(oldWorld[xm1][y]) +
+					int(oldWorld[x][yp1]) + int(oldWorld[x][ym1]) +
+					int(oldWorld[xp1][yp1]) + int(oldWorld[xp1][ym1]) +
+					int(oldWorld[xm1][yp1]) + int(oldWorld[xm1][ym1])
+
+				switch getNewState(aliveNeighbours/255, oldWorld[x][y] == 0xFF) {
 				case -1:
 					world[x][y] = 0x00
 				case 1:
