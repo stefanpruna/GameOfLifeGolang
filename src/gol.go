@@ -24,33 +24,11 @@ const (
 	save   = iota
 )
 
-// Modulus that only returns positive number
 func positiveModulo(x, m int) int {
-	if x > 0 {
-		return x % m
-	} else {
-		for x < 0 {
-			x += m
-		}
-		return x % m
+	for x < 0 {
+		x += m
 	}
-}
-
-// Return the number of alive neighbours
-func getAliveNeighbours(world [][]byte, x, y, imageWidth int) int {
-	aliveNeighbours := 0
-
-	dx := [8]int{-1, -1, 0, 1, 1, 1, 0, -1}
-	dy := [8]int{0, 1, 1, 1, 0, -1, -1, -1}
-
-	for i := 0; i < 8; i++ {
-		newX := x + dx[i]
-		newY := positiveModulo(y+dy[i], imageWidth)
-		if world[newX][newY] == 0xFF {
-			aliveNeighbours++
-		}
-	}
-	return aliveNeighbours
+	return x % m
 }
 
 // Returns the new state of a cell from the number of alive neighbours and current state
@@ -83,9 +61,9 @@ func makeMatrix(width, height int) [][]byte {
 func receiveOrInterrupt(world [][]byte, channels workerChannel, turn int, halo *bool, stopAtTurn *int, lineToReceive, haloIndex int) {
 	select {
 	case c := <-channels.inputHalo[haloIndex]:
-		len := len(world[lineToReceive])
+		length := len(world[lineToReceive])
 		world[lineToReceive][0] = c
-		for j := 1; j < len; j++ {
+		for j := 1; j < length; j++ {
 			world[lineToReceive][j] = <-channels.inputHalo[haloIndex]
 		}
 		*halo = true
@@ -99,8 +77,8 @@ func receiveOrInterrupt(world [][]byte, channels workerChannel, turn int, halo *
 func sendOrInterrupt(world [][]byte, channels workerChannel, turn int, out *bool, stopAtTurn *int, lineToSend, haloIndex int) {
 	select {
 	case channels.outputHalo[haloIndex] <- world[lineToSend][0]:
-		len := len(world[lineToSend])
-		for j := 1; j < len; j++ {
+		length := len(world[lineToSend])
+		for j := 1; j < length; j++ {
 			channels.outputHalo[haloIndex] <- world[lineToSend][j]
 		}
 		*out = true
@@ -179,7 +157,21 @@ func worker(p golParams, channels workerChannel, startX, endX, startY, endY int)
 			// Execute turn
 			for i := 1; i < endX-startX+1; i++ {
 				for j := startY; j < endY; j++ {
-					switch getNewState(getAliveNeighbours(world, i, j, p.imageWidth), world[i][j] == 0xFF) {
+					// Compute alive neighbours
+					aliveNeighbours := 0
+
+					yp1 := (j + 1) % p.imageWidth
+					ym1 := j - 1
+					if ym1 < 0 {
+						ym1 += p.imageWidth
+					}
+
+					aliveNeighbours = int(world[i+1][j]) + int(world[i-1][j]) +
+						int(world[i][yp1]) + int(world[i][ym1]) +
+						int(world[i+1][yp1]) + int(world[i+1][ym1]) +
+						int(world[i-1][yp1]) + int(world[i-1][ym1])
+
+					switch getNewState(aliveNeighbours/255, world[i][j] == 0xFF) {
 					case -1:
 						newWorld[i][j] = 0x00
 					case 1:
@@ -232,7 +224,7 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 }
 
 // Initialise worker channels
-func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int, p golParams) {
+func initialiseChannels(workerChannels []workerChannel, threadsSmall, threadsSmallHeight, threadsLargeHeight int, p golParams) {
 	threadHeight := threadsSmallHeight
 	for i := 0; i < p.threads; i++ {
 		if i == threadsSmall {
@@ -280,8 +272,8 @@ func receiveWorld(world [][]byte, workerChannels []workerChannel, threadsSmall, 
 	endX := threadsSmallHeight
 	for i, channel := range workerChannels {
 		for x := 0; x < endX-startX; x++ {
-			len := len(world[x])
-			for y := 0; y < len; y++ {
+			length := len(world[x])
+			for y := 0; y < length; y++ {
 				world[x+startX][y] = <-channel.outputByte
 			}
 		}
@@ -416,7 +408,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// Worker channels
 	workerChannels := make([]workerChannel, p.threads)
-	initialiseChannels(workerChannels, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
+	initialiseChannels(workerChannels, threadsSmall, threadsSmallHeight, threadsLargeHeight, p)
 
 	// Start workers
 	startX := 0
