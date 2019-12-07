@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-const clientNumber = 32
+const clientNumber = 2
 
 // golParams provides the details of how to run the Game of Life and which image to load.
 type golParams struct {
@@ -109,6 +109,7 @@ func gameOfLife(p golParams, keyChan <-chan rune, clientNumber int, clients []cl
 	return alive
 }
 
+// Listens to port 4000, accepts connections and returns client data.
 func processClients(clientNumber int) []clientData {
 
 	clients := make([]clientData, clientNumber)
@@ -124,7 +125,7 @@ func processClients(clientNumber int) []clientData {
 			if err != nil {
 				fmt.Println(err)
 			}
-			fmt.Println("Client number", i, "/", clientNumber, "connected")
+			fmt.Println("Client number", i, "/", clientNumber, "connected <=>", conn.RemoteAddr())
 
 			clients[i].encoder = gob.NewEncoder(conn)
 			clients[i].decoder = gob.NewDecoder(conn)

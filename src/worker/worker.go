@@ -547,7 +547,7 @@ func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit cha
 }
 
 func main() {
-	defaultHostname := "3.133.100.193"
+	defaultHostname := "192.168.0.9"
 	var hostname string
 
 	flag.StringVar(&hostname, "hostname", defaultHostname, "The hostname of the server.")

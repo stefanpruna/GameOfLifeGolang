@@ -8,12 +8,9 @@ import (
 	"time"
 )
 
-type workerData struct {
-	outputWorld       chan [][]byte
-	distributorOutput chan int
-	encoder           *gob.Encoder
-	index             int
-}
+const (
+	INIT = 0
+)
 
 const (
 	pause  = iota
@@ -22,6 +19,56 @@ const (
 	quit   = iota
 	save   = iota
 )
+
+type workerData struct {
+	outputWorld       chan [][]byte
+	distributorOutput chan int
+	encoder           *gob.Encoder
+	index             int
+}
+
+// Client information
+type clientData struct {
+	encoder *gob.Encoder
+	decoder *gob.Decoder
+	ip      string
+}
+
+// User interaction data package
+type controllerPackage struct {
+	Index, Data int
+}
+
+// Client initialization package
+type initPackage struct {
+	Clients           int
+	Workers           int
+	IpBefore, IpAfter string
+	Turns             int
+	Width             int
+}
+
+// Individual worker initialisation package
+type workerPackage struct {
+	StartX int
+	EndX   int
+	World  [][]byte
+	Index  int
+}
+
+// General client inbout package
+type distributorPackage struct {
+	Index       int
+	Type        int
+	Data        int
+	OutputWorld [][]byte
+}
+
+func processError(error error) {
+	if error != nil {
+		fmt.Println("Err", error)
+	}
+}
 
 func positiveModulo(x, m int) int {
 	for x < 0 {
@@ -50,39 +97,14 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	}
 }
 
-// initialise worker channels
-func initialiseChannels(workerChannels []workerData, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int, p golParams) {
-	for i := 0; i < threadsSmall; i++ {
-		workerChannels[i].outputWorld = make(chan [][]byte, 1)
-
-		workerChannels[i].distributorOutput = make(chan int, 1)
-	}
-
-	for i := 0; i < threadsLarge; i++ {
-		workerChannels[i+threadsSmall].outputWorld = make(chan [][]byte, 1)
-
-		workerChannels[i+threadsSmall].distributorOutput = make(chan int, 1)
-	}
-}
-
-type controllerData struct {
-	Index, Data int
-}
-
+// Encode and send user interaction data to worker
 func encodeData(worker workerData, data int) {
-	p := controllerData{worker.index, data}
+	p := controllerPackage{worker.index, data}
 	err := worker.encoder.Encode(&p)
-	if err != nil {
-		fmt.Println(err)
-	}
+	processError(err)
 }
 
-type clientData struct {
-	encoder *gob.Encoder
-	decoder *gob.Decoder
-	ip      string
-}
-
+// Pauses and synchronises all workers
 func pauseWorkers(workerData []workerData, stopAtTurn *int) {
 	// Pause and get current turns
 	for _, worker := range workerData {
@@ -107,6 +129,7 @@ func pauseWorkers(workerData []workerData, stopAtTurn *int) {
 	}
 }
 
+// Receive the world from all workers
 func receiveWorld(world [][]byte, workerData []workerData, threadsSmall, threadsSmallHeight, threadsLargeHeight int) {
 	startX := 0
 	endX := threadsSmallHeight
@@ -133,6 +156,7 @@ func sendToWorkers(workerData []workerData, data int) {
 	}
 }
 
+// Controlls user interaction
 func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
@@ -210,76 +234,44 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 	}
 }
 
-type initPackage struct {
-	Clients           int
-	Workers           int
-	IpBefore, IpAfter string
-	Turns             int
-	Width             int
-}
-
-type workerPackage struct {
-	StartX int
-	EndX   int
-	World  [][]byte
-	Index  int
-}
-
-type distributorPackage struct {
-	Index       int
-	Type        int
-	Data        int
-	OutputWorld [][]byte
-}
-
+// Listens to a client's connection and transfers received packets to intended channels
 func listenToWorker(decoder *gob.Decoder, channel []workerData, workersServed int) {
+	// This for terminates when all workers sent their final data
 	for i := 0; i < workersServed; {
 		var p distributorPackage
 		err := decoder.Decode(&p)
-		if err != nil {
-			fmt.Println("Err", err)
-		}
+		processError(err)
 
-		if p.Type == 1 {
+		if p.Type == 1 { // a worker sent the world
 			channel[p.Index].outputWorld <- p.OutputWorld
-		} else if p.Type == 0 {
+		} else if p.Type == 0 { // a worker sent some data
 			channel[p.Index].distributorOutput <- p.Data
-		} else if p.Type == -1 {
+		} else if p.Type == -1 { // a worker sent final data, so no more data will be received from it
 			channel[p.Index].distributorOutput <- p.Data
-			i++
+			i++ // we are finished with this worker
 		}
 	}
 }
 
-const (
-	INIT = 0
-)
-
+// Initialises workers on the clients
 func startWorkers(client clientData, initP initPackage, workerP []workerPackage, workerData []workerData) {
-	// The next packet is an init package
+	// Let the client know we are about to send an init package
 	err := client.encoder.Encode(INIT)
-	if err != nil {
-		fmt.Println("Err", err)
-	}
+	processError(err)
 
 	// Send the init package
 	err = client.encoder.Encode(initP)
-	if err != nil {
-		fmt.Println("Err", err)
-	}
+	processError(err)
+
 	// Send worker packages
 	for i, p := range workerP {
 		workerData[i].encoder = client.encoder
 		workerData[i].index = i
 		err = client.encoder.Encode(p)
-		if err != nil {
-			fmt.Println("Err", err)
-		}
+		processError(err)
 	}
 
-	if err != nil {
-		fmt.Println("Err", err)
-	}
+	processError(err)
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -316,9 +308,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	threadsLargeHeight := p.imageHeight/p.threads + 1
 	threadsSmallHeight := p.imageHeight / p.threads
 
-	// Worker channels
+	// Worker channel initialisation
 	workerData := make([]workerData, p.threads)
-	initialiseChannels(workerData, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight, p)
+	for i := 0; i < p.threads; i++ {
+		workerData[i].outputWorld = make(chan [][]byte, 1)
+		workerData[i].distributorOutput = make(chan int, 1)
+	}
 
 	// Threads per client
 	//clientLarge := p.threads % clientNumber
@@ -380,10 +375,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		var p int
 		err := clients[i].decoder.Decode(&p)
 
-		if err != nil {
-			fmt.Println(err)
-		}
-
+		processError(err)
 		if p != 1 {
 			fmt.Println("Ready package mismatch")
 		}
@@ -391,10 +383,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	for i := 0; i < clientNumber; i++ {
 		p := 1
 		err := clients[i].encoder.Encode(&p)
-
-		if err != nil {
-			fmt.Println(err)
-		}
+		processError(err)
 
 		if i < clientSmall {
 			go listenToWorker(clients[i].decoder, workerData, clientSmallWorkers)
@@ -419,13 +408,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// Tell workers to exit listening functions
 	for i := 0; i < clientNumber; i++ {
-		err := clients[i].encoder.Encode(controllerData{
+		err := clients[i].encoder.Encode(controllerPackage{
 			Index: -1,
 			Data:  0,
 		})
-		if err != nil {
-			fmt.Println(err)
-		}
+		processError(err)
 	}
 
 	//outputWorld(p, p.turns, d, world)
