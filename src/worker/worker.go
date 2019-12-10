@@ -115,7 +115,6 @@ func serveToClient(conn net.Conn, index int, c chan byte, width int, turns int, 
 			break
 		}
 	}
-
 	exit <- 1
 }
 
@@ -161,7 +160,6 @@ func receiveFromClient(ip string, c [2]chan byte, turns int, exit chan byte) {
 			c[haloP.Index] <- b
 		}
 	}
-
 	exit <- 1
 }
 
@@ -380,6 +378,7 @@ func localDistributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []c
 	var ln net.Listener = nil
 	var r byte
 
+	// Get initialisation packet
 	try(decoder.Decode(&initP))
 
 	// Wait for external halo connections
@@ -492,7 +491,7 @@ func main() {
 	for {
 		var packetType = 0
 		err = dec.Decode(&packetType)
-		if err != nil { // If server is no longer responding, our work is done.
+		if err != nil { // If server is no longer responding, the work is done.
 			if err == io.EOF {
 				fmt.Println("Connection closed, exiting worker.")
 				return
