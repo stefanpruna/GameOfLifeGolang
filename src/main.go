@@ -125,7 +125,7 @@ func processClients(clientNumber int) []clientData {
 			if err != nil {
 				fmt.Println(err)
 			}
-			fmt.Println("Client number", i, "/", clientNumber, "connected <=>", conn.RemoteAddr())
+			fmt.Println("Client number", i+1, "/", clientNumber, "connected <=>", conn.RemoteAddr())
 
 			clients[i].encoder = gob.NewEncoder(conn)
 			clients[i].decoder = gob.NewDecoder(conn)
@@ -161,7 +161,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 5000
+	params.turns = 50000
 
 	fmt.Println("Waiting for", clientNumber, "clients to connect.")
 	clients := processClients(clientNumber)
