@@ -3,14 +3,13 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
 )
 
-const (
-	INIT = 0
-)
+const INIT = 0
 
 const (
 	pause  = iota
@@ -34,13 +33,13 @@ type clientData struct {
 	ip      string
 }
 
-// User interaction data package
-type controllerPackage struct {
+// User interaction data packet
+type controllerPacket struct {
 	Index, Data int
 }
 
-// Client initialization package
-type initPackage struct {
+// Client initialization packet
+type initPacket struct {
 	Clients           int
 	Workers           int
 	IpBefore, IpAfter string
@@ -48,23 +47,23 @@ type initPackage struct {
 	Width             int
 }
 
-// Individual worker initialisation package
-type workerPackage struct {
+// Individual worker initialisation packet
+type workerPacket struct {
 	StartX int
 	EndX   int
 	World  [][]byte
 	Index  int
 }
 
-// General client inbout package
-type distributorPackage struct {
+// General client inbout packet
+type distributorPacket struct {
 	Index       int
 	Type        int
 	Data        int
 	OutputWorld [][]byte
 }
 
-func processError(error error) {
+func try(error error) {
 	if error != nil {
 		fmt.Println("Err", error)
 	}
@@ -97,18 +96,11 @@ func outputWorld(p golParams, state int, d distributorChans, world [][]byte) {
 	}
 }
 
-// Encode and send user interaction data to worker
-func encodeData(worker workerData, data int) {
-	p := controllerPackage{worker.index, data}
-	err := worker.encoder.Encode(&p)
-	processError(err)
-}
-
 // Pauses and synchronises all workers
 func pauseWorkers(workerData []workerData, stopAtTurn *int) {
 	// Pause and get current turns
 	for _, worker := range workerData {
-		encodeData(worker, pause)
+		try(worker.encoder.Encode(controllerPacket{worker.index, pause}))
 	}
 	for _, worker := range workerData {
 		t := <-worker.distributorOutput
@@ -119,7 +111,7 @@ func pauseWorkers(workerData []workerData, stopAtTurn *int) {
 
 	// Tell all workers to stop after turn stopAtTurn
 	for _, worker := range workerData {
-		encodeData(worker, *stopAtTurn)
+		try(worker.encoder.Encode(controllerPacket{worker.index, *stopAtTurn}))
 	}
 	for _, channel := range workerData {
 		r := <-channel.distributorOutput
@@ -152,12 +144,12 @@ func receiveWorld(world [][]byte, workerData []workerData, threadsSmall, threads
 // Sends data over all worker channels
 func sendToWorkers(workerData []workerData, data int) {
 	for _, worker := range workerData {
-		encodeData(worker, data)
+		try(worker.encoder.Encode(controllerPacket{worker.index, data}))
 	}
 }
 
 // Controlls user interaction
-func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight int) {
+func workerController(p golParams, world [][]byte, workerData []workerData, d distributorChans, keyChan <-chan rune, threadsSmall, threadsSmallHeight, threadsLargeHeight int) {
 	stopAtTurn := 0
 	paused := false
 	timer := time.NewTimer(2 * time.Second)
@@ -238,9 +230,13 @@ func workerController(p golParams, world [][]byte, workerData []workerData, d di
 func listenToWorker(decoder *gob.Decoder, channel []workerData, workersServed int) {
 	// This for terminates when all workers sent their final data
 	for i := 0; i < workersServed; {
-		var p distributorPackage
+		var p distributorPacket
 		err := decoder.Decode(&p)
-		processError(err)
+		if err == io.EOF {
+			fmt.Println("Client disconnected.")
+		} else {
+			try(err)
+		}
 
 		if p.Type == 1 { // a worker sent the world
 			channel[p.Index].outputWorld <- p.OutputWorld
@@ -254,24 +250,19 @@ func listenToWorker(decoder *gob.Decoder, channel []workerData, workersServed in
 }
 
 // Initialises workers on the clients
-func startWorkers(client clientData, initP initPackage, workerP []workerPackage, workerData []workerData) {
-	// Let the client know we are about to send an init package
-	err := client.encoder.Encode(INIT)
-	processError(err)
+func startWorkers(client clientData, initP initPacket, workerP []workerPacket, workerData []workerData) {
+	// Let the client know we are about to send an init packet
+	try(client.encoder.Encode(INIT))
 
-	// Send the init package
-	err = client.encoder.Encode(initP)
-	processError(err)
+	// Send the init packet
+	try(client.encoder.Encode(initP))
 
-	// Send worker packages
+	// Send worker packets
 	for i, p := range workerP {
 		workerData[i].encoder = client.encoder
 		workerData[i].index = i
-		err = client.encoder.Encode(p)
-		processError(err)
+		try(client.encoder.Encode(p))
 	}
-
-	processError(err)
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
@@ -303,7 +294,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// Thread calculations
 	// 16x16 with 10 threads: 6 large threads with 2 height + 4 small threads with 1 height
-	threadsLarge := p.imageHeight % p.threads
+	//threadsLarge := p.imageHeight % p.threads
 	threadsSmall := p.threads - p.imageHeight%p.threads
 	threadsLargeHeight := p.imageHeight/p.threads + 1
 	threadsSmallHeight := p.imageHeight / p.threads
@@ -322,8 +313,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	clientLargeWorkers := p.threads/clientNumber + 1
 	clientSmallWorkers := p.threads / clientNumber
 
-	workerBounds := make([]workerPackage, p.threads)
-	t := 0
+	workerBounds := make([]workerPacket, p.threads)
 
 	// Copy of world, but with extra 2 lines (one at the start, one at the end)
 	borderedWorld := make([][]byte, p.imageHeight+2)
@@ -333,57 +323,50 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	borderedWorld[0] = world[p.imageHeight-1]
 	borderedWorld[p.imageHeight+1] = world[0]
 
-	// start workers
-	for i := 0; i < threadsSmall; i++ {
-		workerBounds[t] = workerPackage{
-			threadsSmallHeight * i,
-			threadsSmallHeight * (i + 1),
-			borderedWorld[(threadsSmallHeight)*i : (threadsSmallHeight)*(i+1)+2],
-			t,
+	// Create worker initialisation packets
+	startX := 0
+	endX := threadsSmallHeight
+	for i := 0; i < p.threads; i++ {
+		workerBounds[i] = workerPacket{startX, endX,
+			borderedWorld[startX : endX+2],
+			i}
+
+		startX = endX
+		if i < threadsSmall-1 {
+			endX += threadsSmallHeight
+		} else {
+			endX += threadsLargeHeight
 		}
-		t++
-	}
-	for i := 0; i < threadsLarge; i++ {
-		workerBounds[t] = workerPackage{
-			threadsSmallHeight*threadsSmall + threadsLargeHeight*i,
-			threadsSmallHeight*threadsSmall + threadsLargeHeight*(i+1),
-			borderedWorld[threadsSmallHeight*threadsSmall+threadsLargeHeight*i : threadsSmallHeight*threadsSmall+threadsLargeHeight*(i+1)+2],
-			t,
-		}
-		t++
 	}
 
-	t = 0
-	// Start workers on remote machines
+	// Start workers on remote clients
+	t := 0
 	for i := 0; i < clientNumber; i++ {
 		host0 := clients[positiveModulo(i-1, clientNumber)].ip
 		host1 := clients[positiveModulo(i+1, clientNumber)].ip
-		if i < clientSmall {
-			fmt.Println(clientSmallWorkers, "Workers started on client", i)
-			startWorkers(clients[i], initPackage{clientNumber, clientSmallWorkers, host0, host1, p.turns, p.imageWidth},
-				workerBounds[t:t+clientSmallWorkers], workerData[t:t+clientSmallWorkers])
-			t += clientSmallWorkers
-		} else {
-			fmt.Println(clientLargeWorkers, "Workers started on client", i)
-			startWorkers(clients[i], initPackage{clientNumber, clientLargeWorkers, host0, host1, p.turns, p.imageWidth},
-				workerBounds[t:t+clientLargeWorkers], workerData[t:t+clientLargeWorkers])
-			t += clientLargeWorkers
+		workers := clientSmallWorkers
+		if i >= clientSmall {
+			workers = clientLargeWorkers
 		}
+		fmt.Println(workers, "workers started on client", i)
+		startWorkers(clients[i],
+			initPacket{clientNumber, workers, host0, host1, p.turns, p.imageWidth},
+			workerBounds[t:t+workers], workerData[t:t+workers])
+		t += workers
 	}
 
+	// Client synchronisation
 	for i := 0; i < clientNumber; i++ {
 		var p int
-		err := clients[i].decoder.Decode(&p)
+		try(clients[i].decoder.Decode(&p))
 
-		processError(err)
 		if p != 1 {
-			fmt.Println("Ready package mismatch")
+			fmt.Println("Ready packet mismatch")
 		}
 	}
 	for i := 0; i < clientNumber; i++ {
 		p := 1
-		err := clients[i].encoder.Encode(&p)
-		processError(err)
+		try(clients[i].encoder.Encode(&p))
 
 		if i < clientSmall {
 			go listenToWorker(clients[i].decoder, workerData, clientSmallWorkers)
@@ -393,7 +376,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 	}
 
 	// Process IO and control workers
-	workerController(p, world, workerData, d, keyChan, threadsSmall, threadsSmallHeight, threadsLarge, threadsLargeHeight)
+	workerController(p, world, workerData, d, keyChan, threadsSmall, threadsSmallHeight, threadsLargeHeight)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
@@ -408,11 +391,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 
 	// Tell workers to exit listening functions
 	for i := 0; i < clientNumber; i++ {
-		err := clients[i].encoder.Encode(controllerPackage{
-			Index: -1,
-			Data:  0,
-		})
-		processError(err)
+		try(clients[i].encoder.Encode(controllerPacket{-1, 0}))
 	}
 
 	//outputWorld(p, p.turns, d, world)
