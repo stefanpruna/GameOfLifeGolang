@@ -138,7 +138,7 @@ func waitForClients(clients []net.Conn, done chan net.Listener, listening chan b
 }
 
 // Receive external halos from another client
-func receiveFromClient(ip string, c [2]chan byte, width int, turns int, exit chan byte) {
+func receiveFromClient(ip string, c [2]chan byte, turns int, exit chan byte) {
 	conn, err := net.Dial("tcp4", ip+":4001")
 	if err != nil {
 		fmt.Println("err", err)
@@ -407,8 +407,8 @@ func localDistributor(encoder *gob.Encoder, decoder *gob.Decoder, exitThread []c
 
 	// Connect to external halo sockets
 	if initP.Clients > 1 {
-		go receiveFromClient(initP.IpBefore, [2]chan byte{workerData[0].inputHalo[0], workerData[initP.Workers-1].inputHalo[1]}, initP.Width, initP.Turns, exitThread[1])
-		go receiveFromClient(initP.IpAfter, [2]chan byte{workerData[0].inputHalo[0], workerData[initP.Workers-1].inputHalo[1]}, initP.Width, initP.Turns, exitThread[2])
+		go receiveFromClient(initP.IpBefore, [2]chan byte{workerData[0].inputHalo[0], workerData[initP.Workers-1].inputHalo[1]}, initP.Turns, exitThread[1])
+		go receiveFromClient(initP.IpAfter, [2]chan byte{workerData[0].inputHalo[0], workerData[initP.Workers-1].inputHalo[1]}, initP.Turns, exitThread[2])
 
 		ln = <-done
 	}
