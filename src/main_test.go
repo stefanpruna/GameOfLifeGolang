@@ -319,7 +319,7 @@ func Test(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if test.args.p.imageHeight <= clientNumber {
+			if test.args.p.imageHeight >= clientNumber {
 				alive := gameOfLife(test.args.p, nil, clientNumber, clients)
 				//fmt.Println("Ran test:", test.name)
 				if test.name != "trace" {
