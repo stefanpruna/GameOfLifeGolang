@@ -291,7 +291,7 @@ func Test(t *testing.T) {
 		{"512x512x113-1000", args{
 			p: golParams{
 				turns:       1000,
-				threads:     113,
+				threads:     247,
 				imageWidth:  512,
 				imageHeight: 512,
 			},
