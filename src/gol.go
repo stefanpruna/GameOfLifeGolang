@@ -280,7 +280,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, keyChan <-c
 		for x := 0; x < p.imageWidth; x++ {
 			val := <-d.io.inputVal
 			if val != 0 {
-				fmt.Println("Alive cell at", x, y)
+				//fmt.Println("Alive cell at", x, y)
 				world[y][x] = val
 			}
 		}
